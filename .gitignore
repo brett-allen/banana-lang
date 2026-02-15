@@ -1,0 +1,47 @@
+# Zig build artifacts
+zig-out/
+zig-cache/
+*.o
+*.obj
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Zig build system
+build.zig.lock
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Debug files
+*.dSYM/
+*.pdb
+
+# Test artifacts
+test_*
+
+# Temporary files
+*.tmp
+*.log
+*.bak
+*.orig
+
+# OS-specific
+Thumbs.db
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Coverage reports
+*.profraw
+*.gcda
+*.gcno
+
+# Documentation builds
+docs/_build/
