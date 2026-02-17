@@ -208,6 +208,15 @@ pub const Parser = struct {
         };
     }
 
+    fn parseStringLiteral(self: *Parser) !ast.Expression {
+        return ast.Expression{
+            .string_literal = ast.StringLiteral{
+                .token = self.current_token,
+                .value = self.current_token.literal,
+            },
+        };
+    }
+
     //
     // helpers
     fn nextToken(self: *Parser) void {
@@ -246,6 +255,7 @@ pub const Parser = struct {
             .bang, .minus => parsePrefixExpression,
             .ident => parseIdentifier,
             .int => parseIntegerLiteral,
+            .string => parseStringLiteral,
             else => null,
         };
     }

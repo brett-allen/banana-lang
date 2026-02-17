@@ -41,6 +41,10 @@ pub const Lexer = struct {
             '<' => tok = token.Token.init(token.TokenType.lt, "<"),
             '>' => tok = token.Token.init(token.TokenType.gt, ">"),
             '!' => tok = token.Token.init(token.TokenType.bang, "!"),
+            '"' => {
+                tok = T(.string, self.readString());
+                return tok;
+            },
             0 => tok = token.Token.init(token.TokenType.eof, ""),
             else => {
                 if (self.isLetter()) {
@@ -84,6 +88,19 @@ pub const Lexer = struct {
             self.readChar();
         }
         return self.input[start..self.position];
+    }
+
+    fn readString(self: *Lexer) []const u8 {
+        self.readChar(); // Skip opening quote
+        const start = self.position;
+        while (self.ch != '"' and self.ch != 0) {
+            self.readChar();
+        }
+        const value = self.input[start..self.position];
+        if (self.ch == '"') {
+            self.readChar(); // Skip closing quote
+        }
+        return value;
     }
 
     fn isLetter(self: *Lexer) bool {
