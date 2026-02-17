@@ -1,6 +1,7 @@
 const std = @import("std");
 const lex = @import("lex.zig");
 const parser = @import("parser.zig");
+const evaluator = @import("evaluator.zig");
 
 pub fn main() !void {
     // get an allocator; standard zig memory management
@@ -39,23 +40,27 @@ pub fn main() !void {
     std.debug.print("\n", .{});
 
     // Evaluate the program
-    // var env = object.Environment.init(heap);
-    // defer env.deinit();
+    var eval = evaluator.Evaluator.init(heap);
+    defer eval.deinit();
 
-    // var eval = evaluator.Evaluator.init(heap);
-    // var result = try eval.evalProgram(&program, env);
-    // defer result.deinit(heap);
+    const result = try eval.evaluate(.{ .program = program });
 
     // Print the result (skip null - it's not meaningful output)
-    // switch (result) {
-    //     .null => {}, // Don't print null results
-    //     else => {
-    //         var stdout_buffer: [4096]u8 = undefined;
-    //         var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
-    //         const writer = &stdout_writer.interface;
-    //         try result.print(writer);
-    //         try writer.print("\n", .{});
-    //         writer.flush() catch {};
-    //     },
-    // }
+    if (result) |obj| {
+        switch (obj) {
+            .integer => |int_obj| {
+                std.debug.print("{}\n", .{int_obj.value});
+            },
+            .@"null" => {}, // Don't print null results
+            else => {
+                // Print other object types
+                const stdout_buffer2 = try heap.alloc(u8, 4096);
+                defer heap.free(stdout_buffer2);
+                var stdout_writer2 = std.fs.File.stdout().writer(stdout_buffer2);
+                const writer2 = &stdout_writer2.interface;
+                try obj.inspect(writer2);
+                try writer2.flush();
+            },
+        }
+    }
 }

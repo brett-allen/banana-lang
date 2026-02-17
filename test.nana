@@ -1,3 +1,7 @@
 let a = 2;
 let b = 3;
 let c = a + b;
+
+puts(2);
+puts(b);
+puts(c);

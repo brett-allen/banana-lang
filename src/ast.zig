@@ -1,7 +1,23 @@
 const std = @import("std");
 const tok = @import("token.zig");
 
-const Node = enum { Program, Statement, Expression };
+pub const Node = union(enum) {
+    program: Program,
+    statement: Statement,
+    expression: Expression,
+
+    pub fn tokenLiteral(self: Node) []const u8 {
+        return switch (self) {
+            inline else => |node| node.tokenLiteral(),
+        };
+    }
+
+    pub fn string(self: Node, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+        switch (self) {
+            inline else => |node| node.string(writer),
+        }
+    }
+};
 
 pub const Program = struct {
     statements: std.ArrayList(Statement),
@@ -17,6 +33,7 @@ pub const Program = struct {
     pub fn string(self: *const Program, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         for (self.statements.items) |stmt| {
             try stmt.string(writer);
+            try writer.writeByte('\n');
         }
     }
 };
@@ -59,6 +76,7 @@ pub const Expression = union(enum) {
     integer_literal: IntegerLiteral,
     prefix_expression: PrefixExpression,
     infix_expression: InfixExpression,
+    call_expression: CallExpression,
 
     pub fn string(self: *const Expression, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         switch (self.*) {
@@ -108,7 +126,7 @@ pub const InfixExpression = struct {
 
     pub fn string(self: *const InfixExpression, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         try self.left.string(writer);
-        try writer.writeAll(self.operator);
+        try writer.print(" {s} ", .{self.operator});
         try self.right.string(writer);
     }
 };
@@ -155,5 +173,27 @@ pub const IntegerLiteral = struct {
 
     pub fn string(self: *const IntegerLiteral, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         try writer.writeAll(self.tokenLiteral());
+    }
+};
+
+pub const CallExpression = struct {
+    token: tok.Token,
+    function: *Expression,
+    arguments: std.ArrayList(Expression),
+
+    pub fn tokenLiteral(self: *const CallExpression) []const u8 {
+        return self.token.literal;
+    }
+
+    pub fn string(self: *const CallExpression, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+        try self.function.string(writer);
+        try writer.writeByte('(');
+        for (self.arguments.items, 0..) |arg, i| {
+            try arg.string(writer);
+            if (i < self.arguments.items.len - 1) {
+                try writer.writeAll(", ");
+            }
+        }
+        try writer.writeByte(')');
     }
 };
