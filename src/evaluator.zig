@@ -90,6 +90,12 @@ pub const Evaluator = struct {
         var result: ?obj.Object = null;
         for (program.statements.items) |stmt| {
             result = try self.evaluateStatement(stmt);
+            // Stop evaluation if we hit an error object
+            if (result) |result_obj| {
+                if (result_obj == .@"error") {
+                    return result;
+                }
+            }
         }
         return result;
     }
@@ -97,8 +103,8 @@ pub const Evaluator = struct {
     fn evaluateStatement(self: *Evaluator, stmt: ast.Statement) EvalError!?obj.Object {
         return switch (stmt) {
             .let_statement => |let_stmt| {
-                try self.evaluateLetStatement(let_stmt);
-                return null;
+                const result = try self.evaluateLetStatement(let_stmt);
+                return result;
             },
             .expression_statement => |exp_stmt| {
                 return try self.evaluateExpression(exp_stmt.expression);
@@ -106,10 +112,15 @@ pub const Evaluator = struct {
         };
     }
 
-    fn evaluateLetStatement(self: *Evaluator, stmt: ast.LetStatement) EvalError!void {
+    fn evaluateLetStatement(self: *Evaluator, stmt: ast.LetStatement) EvalError!?obj.Object {
         const value = try self.evaluateExpression(stmt.value);
+        // Check for error objects - return them so they propagate
+        if (value == .@"error") {
+            return value;
+        }
         const name = stmt.name.value;
         try self.env.set(name, value);
+        return null;
     }
 
     fn evaluateExpression(self: *Evaluator, expr: ast.Expression) EvalError!obj.Object {
@@ -140,9 +151,9 @@ pub const Evaluator = struct {
         if (self.env.get(name)) |value| {
             return value;
         } else {
-            // Variable not found - return null for now
-            // In a full implementation, this should be an error
-            return EvalError.VariableNotFound;
+            // Variable not found - return error object
+            const msg = try std.fmt.allocPrint(self.heap, "identifier not found: {s}", .{name});
+            return obj.Object{ .@"error" = obj.ErrorObject{ .message = msg } };
         }
     }
 
@@ -156,6 +167,10 @@ pub const Evaluator = struct {
 
     fn evaluatePrefixExpression(self: *Evaluator, expr: ast.PrefixExpression) EvalError!obj.Object {
         const right = try self.evaluateExpression(expr.right.*);
+        // Check for error objects
+        if (right == .@"error") {
+            return right;
+        }
 
         return switch (expr.operator[0]) {
             '!' => {
@@ -181,7 +196,16 @@ pub const Evaluator = struct {
         }
 
         const left_obj = try self.evaluateExpression(expr.left.*);
+        // Check for error objects
+        if (left_obj == .@"error") {
+            return left_obj;
+        }
+        
         const right_obj = try self.evaluateExpression(expr.right.*);
+        // Check for error objects
+        if (right_obj == .@"error") {
+            return right_obj;
+        }
 
         // Handle + operator: integer addition or string concatenation
         if (std.mem.eql(u8, expr.operator, "+")) {
@@ -190,6 +214,17 @@ pub const Evaluator = struct {
                 const left_val = left_obj.integer.value;
                 const right_val = right_obj.integer.value;
                 return obj.Object{ .integer = obj.IntegerObject{ .value = left_val + right_val } };
+            }
+            
+            // If both are strings, concatenate directly
+            if (left_obj == .string and right_obj == .string) {
+                const left_str = left_obj.string.value;
+                const right_str = right_obj.string.value;
+                const total_len = left_str.len + right_str.len;
+                const concat = try self.heap.alloc(u8, total_len);
+                @memcpy(concat[0..left_str.len], left_str);
+                @memcpy(concat[left_str.len..], right_str);
+                return obj.Object{ .string = obj.StringObject{ .value = concat } };
             }
             
             // Otherwise, convert to strings and concatenate
@@ -202,7 +237,6 @@ pub const Evaluator = struct {
                     .string => |str_obj| break :blk str_obj.value,
                     .integer => |int_obj| {
                         const str = std.fmt.bufPrint(&left_buffer, "{d}", .{int_obj.value}) catch {
-                            // Buffer too small - should never happen with 64 bytes, but handle gracefully
                             const msg = try self.heap.dupe(u8, "integer too large to convert");
                             return obj.Object{ .@"error" = obj.ErrorObject{ .message = msg } };
                         };
@@ -217,7 +251,6 @@ pub const Evaluator = struct {
                     .string => |str_obj| break :blk str_obj.value,
                     .integer => |int_obj| {
                         const str = std.fmt.bufPrint(&right_buffer, "{d}", .{int_obj.value}) catch {
-                            // Buffer too small - should never happen with 64 bytes, but handle gracefully
                             const msg = try self.heap.dupe(u8, "integer too large to convert");
                             return obj.Object{ .@"error" = obj.ErrorObject{ .message = msg } };
                         };
@@ -264,6 +297,10 @@ pub const Evaluator = struct {
         };
 
         const value = try self.evaluateExpression(expr.right.*);
+        // Check for error objects
+        if (value == .@"error") {
+            return value;
+        }
         const name = left_ident.value;
         try self.env.set(name, value);
         return value;
@@ -272,11 +309,20 @@ pub const Evaluator = struct {
     fn evaluateCallExpression(self: *Evaluator, expr: ast.CallExpression) EvalError!obj.Object {
         const function = try self.evaluateExpression(expr.function.*);
         
+        // If function evaluation returned an error object, return it
+        if (function == .@"error") {
+            return function;
+        }
+        
         var args = std.ArrayList(obj.Object){};
         defer args.deinit(self.heap);
         
         for (expr.arguments.items) |arg| {
             const evaluated = try self.evaluateExpression(arg);
+            // Check for error objects in arguments
+            if (evaluated == .@"error") {
+                return evaluated;
+            }
             try args.append(self.heap, evaluated);
         }
 

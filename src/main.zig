@@ -43,7 +43,10 @@ pub fn main() !void {
     var eval = evaluator.Evaluator.init(heap);
     defer eval.deinit();
 
-    const result = try eval.evaluate(.{ .program = program });
+    const result = eval.evaluate(.{ .program = program }) catch |err| {
+        std.debug.print("Error: {}\n", .{err});
+        return;
+    };
 
     // Print the result (skip null - it's not meaningful output)
     if (result) |obj| {
@@ -52,6 +55,10 @@ pub fn main() !void {
                 std.debug.print("{}\n", .{int_obj.value});
             },
             .@"null" => {}, // Don't print null results
+            .@"error" => |err_obj| {
+                // Print error objects to stderr
+                std.debug.print("Error: {s}\n", .{err_obj.message});
+            },
             else => {
                 // Print other object types
                 const stdout_buffer2 = try heap.alloc(u8, 4096);

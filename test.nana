@@ -10,3 +10,4 @@ let s = "this is a string";
 puts(s);
 
 puts("and this is a string " + a);
+puts("one" + " " + "two");
