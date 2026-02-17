@@ -4,10 +4,24 @@ const tok = @import("token.zig");
 
 const obj = @import("obj.zig");
 
+// Builtin functions
+fn builtinPuts(allocator: std.mem.Allocator, args: []const obj.Object) anyerror!obj.Object {
+    var stdout_buffer: [4096]u8 = undefined;
+    var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+    const writer = &stdout_writer.interface;
+    for (args) |arg| {
+        try arg.inspect(writer);
+        try writer.writeByte('\n');
+        try writer.flush();
+    }
+    _ = allocator;
+    return obj.Object{ .@"null" = obj.NullObject{ .value = {} } };
+}
+
 pub const EvalError = error{
     OutOfMemory,
     VariableNotFound,
-};
+} || std.mem.Allocator.Error || std.Io.Writer.Error;
 
 // Environment to store variable bindings
 pub const Environment = struct {
@@ -47,10 +61,17 @@ pub const Evaluator = struct {
     env: Environment,
 
     pub fn init(heap: std.mem.Allocator) Evaluator {
-        return Evaluator{
+        var eval = Evaluator{
             .heap = heap,
             .env = Environment.init(heap),
         };
+        eval.initBuiltins() catch {};
+        return eval;
+    }
+
+    fn initBuiltins(self: *Evaluator) EvalError!void {
+        const puts_obj = obj.Object{ .builtin = obj.BuiltinObject{ .@"fn" = &builtinPuts } };
+        try self.env.set("puts", puts_obj);
     }
 
     pub fn deinit(self: *Evaluator) void {
@@ -104,6 +125,9 @@ pub const Evaluator = struct {
             },
             .infix_expression => |infix_expr| {
                 return try self.evaluateInfixExpression(infix_expr);
+            },
+            .call_expression => |call_expr| {
+                return try self.evaluateCallExpression(call_expr);
             },
         };
     }
@@ -184,5 +208,32 @@ pub const Evaluator = struct {
         const name = left_ident.value;
         try self.env.set(name, value);
         return value;
+    }
+
+    fn evaluateCallExpression(self: *Evaluator, expr: ast.CallExpression) EvalError!obj.Object {
+        const function = try self.evaluateExpression(expr.function.*);
+        
+        var args = std.ArrayList(obj.Object){};
+        defer args.deinit(self.heap);
+        
+        for (expr.arguments.items) |arg| {
+            const evaluated = try self.evaluateExpression(arg);
+            try args.append(self.heap, evaluated);
+        }
+
+        return switch (function) {
+            .builtin => |builtin| {
+                return builtin.@"fn"(self.heap, args.items) catch {
+                    // Builtin functions should return error objects, not propagate errors
+                    // Convert any error to an error object
+                    const msg = try self.heap.dupe(u8, "builtin function error");
+                    return obj.Object{ .@"error" = obj.ErrorObject{ .message = msg } };
+                };
+            },
+            else => {
+                const msg = try self.heap.dupe(u8, "not a function");
+                return obj.Object{ .@"error" = obj.ErrorObject{ .message = msg } };
+            },
+        };
     }
 };
