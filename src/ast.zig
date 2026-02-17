@@ -76,6 +76,7 @@ pub const Expression = union(enum) {
     integer_literal: IntegerLiteral,
     prefix_expression: PrefixExpression,
     infix_expression: InfixExpression,
+    call_expression: CallExpression,
 
     pub fn string(self: *const Expression, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         switch (self.*) {
@@ -172,5 +173,27 @@ pub const IntegerLiteral = struct {
 
     pub fn string(self: *const IntegerLiteral, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         try writer.writeAll(self.tokenLiteral());
+    }
+};
+
+pub const CallExpression = struct {
+    token: tok.Token,
+    function: *Expression,
+    arguments: std.ArrayList(Expression),
+
+    pub fn tokenLiteral(self: *const CallExpression) []const u8 {
+        return self.token.literal;
+    }
+
+    pub fn string(self: *const CallExpression, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+        try self.function.string(writer);
+        try writer.writeByte('(');
+        for (self.arguments.items, 0..) |arg, i| {
+            try arg.string(writer);
+            if (i < self.arguments.items.len - 1) {
+                try writer.writeAll(", ");
+            }
+        }
+        try writer.writeByte(')');
     }
 };

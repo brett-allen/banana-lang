@@ -15,11 +15,15 @@ pub const BUILTIN_OBJ = "BUILTIN";
 pub const ARRAY_OBJ = "ARRAY";
 pub const HASH_OBJ = "HASH";
 
+// BuiltinFunction type - will be properly typed in evaluator.zig
+pub const BuiltinFunction = *const fn (allocator: std.mem.Allocator, args: []const Object) anyerror!Object;
+
 pub const Object = union(enum) {
     integer: IntegerObject,
     boolean: BooleanObject,
     @"null": NullObject,
     @"error": ErrorObject,
+    builtin: BuiltinObject,
 
     pub fn _type(self: Object) ObjectType {
         return switch (self) {
@@ -88,5 +92,13 @@ pub const ErrorObject = struct {
 
     pub fn inspect(self: *const ErrorObject, writer: *std.Io.Writer) ObjectError!void {
         return try writer.writeAll(self.message);
+    }
+};
+
+pub const BuiltinObject = struct {
+    @"fn": BuiltinFunction,
+
+    pub fn inspect(_: *const BuiltinObject, writer: *std.Io.Writer) ObjectError!void {
+        return try writer.writeAll("builtin function");
     }
 };

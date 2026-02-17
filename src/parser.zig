@@ -253,7 +253,48 @@ pub const Parser = struct {
     fn infixFns(self: *Parser) ?*const fn (self: *Parser, left: ast.Expression) ParserError!ast.Expression {
         return switch (self.peek_token.type) {
             .assign, .plus, .minus, .slash, .asterisk, .lt, .gt, .eq, .not_eq => parseInfixExpression,
+            .lparen => parseCallExpression,
             else => null,
         };
+    }
+
+    fn parseCallExpression(self: *Parser, function: ast.Expression) !ast.Expression {
+        const token = self.current_token;
+        const args = try self.parseExpressionList(.rparen);
+        
+        const function_ptr = try self.heap.create(ast.Expression);
+        function_ptr.* = function;
+
+        return ast.Expression{
+            .call_expression = ast.CallExpression{
+                .token = token,
+                .function = function_ptr,
+                .arguments = args,
+            },
+        };
+    }
+
+    fn parseExpressionList(self: *Parser, end: tok.TokenType) !std.ArrayList(ast.Expression) {
+        var list = std.ArrayList(ast.Expression){};
+
+        if (self.peekTokenIs(end)) {
+            self.nextToken();
+            return list;
+        }
+
+        self.nextToken();
+        try list.append(self.heap, try self.parseExpression(Precedence.lowest));
+
+        while (self.peekTokenIs(.comma)) {
+            self.nextToken();
+            self.nextToken();
+            try list.append(self.heap, try self.parseExpression(Precedence.lowest));
+        }
+
+        if (!self.expectPeek(end)) {
+            return ParserError.MissingRightParenthesis;
+        }
+
+        return list;
     }
 };
