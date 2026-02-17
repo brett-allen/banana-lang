@@ -183,7 +183,60 @@ pub const Evaluator = struct {
         const left_obj = try self.evaluateExpression(expr.left.*);
         const right_obj = try self.evaluateExpression(expr.right.*);
 
-        // Both operands must be integers for arithmetic operations
+        // Handle + operator: integer addition or string concatenation
+        if (std.mem.eql(u8, expr.operator, "+")) {
+            // If both are integers, do integer addition
+            if (left_obj == .integer and right_obj == .integer) {
+                const left_val = left_obj.integer.value;
+                const right_val = right_obj.integer.value;
+                return obj.Object{ .integer = obj.IntegerObject{ .value = left_val + right_val } };
+            }
+            
+            // Otherwise, convert to strings and concatenate
+            // Use fixed buffers for integer conversion to avoid intermediate allocations
+            var left_buffer: [64]u8 = undefined;
+            var right_buffer: [64]u8 = undefined;
+            
+            const left_str = blk: {
+                switch (left_obj) {
+                    .string => |str_obj| break :blk str_obj.value,
+                    .integer => |int_obj| {
+                        const str = std.fmt.bufPrint(&left_buffer, "{d}", .{int_obj.value}) catch {
+                            // Buffer too small - should never happen with 64 bytes, but handle gracefully
+                            const msg = try self.heap.dupe(u8, "integer too large to convert");
+                            return obj.Object{ .@"error" = obj.ErrorObject{ .message = msg } };
+                        };
+                        break :blk str;
+                    },
+                    else => return obj.Object{ .@"null" = obj.NullObject{ .value = {} } },
+                }
+            };
+            
+            const right_str = blk: {
+                switch (right_obj) {
+                    .string => |str_obj| break :blk str_obj.value,
+                    .integer => |int_obj| {
+                        const str = std.fmt.bufPrint(&right_buffer, "{d}", .{int_obj.value}) catch {
+                            // Buffer too small - should never happen with 64 bytes, but handle gracefully
+                            const msg = try self.heap.dupe(u8, "integer too large to convert");
+                            return obj.Object{ .@"error" = obj.ErrorObject{ .message = msg } };
+                        };
+                        break :blk str;
+                    },
+                    else => return obj.Object{ .@"null" = obj.NullObject{ .value = {} } },
+                }
+            };
+
+            // Allocate once for the concatenated string
+            const total_len = left_str.len + right_str.len;
+            const concat = try self.heap.alloc(u8, total_len);
+            @memcpy(concat[0..left_str.len], left_str);
+            @memcpy(concat[left_str.len..], right_str);
+            
+            return obj.Object{ .string = obj.StringObject{ .value = concat } };
+        }
+
+        // Both operands must be integers for other arithmetic operations
         const left = switch (left_obj) {
             .integer => |int_obj| int_obj.value,
             else => return obj.Object{ .@"null" = obj.NullObject{ .value = {} } },
@@ -194,7 +247,6 @@ pub const Evaluator = struct {
         };
 
         return switch (expr.operator[0]) {
-            '+' => obj.Object{ .integer = obj.IntegerObject{ .value = left + right } },
             '-' => obj.Object{ .integer = obj.IntegerObject{ .value = left - right } },
             '*' => obj.Object{ .integer = obj.IntegerObject{ .value = left * right } },
             '/' => obj.Object{ .integer = obj.IntegerObject{ .value = @divTrunc(left, right) } },
