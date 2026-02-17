@@ -120,6 +120,9 @@ pub const Evaluator = struct {
             .integer_literal => |int_lit| {
                 return self.evaluateIntegerLiteral(int_lit);
             },
+            .string_literal => |str_lit| {
+                return self.evaluateStringLiteral(str_lit);
+            },
             .prefix_expression => |prefix_expr| {
                 return try self.evaluatePrefixExpression(prefix_expr);
             },
@@ -145,6 +148,10 @@ pub const Evaluator = struct {
 
     fn evaluateIntegerLiteral(_: *Evaluator, int_lit: ast.IntegerLiteral) EvalError!obj.Object {
         return obj.Object{ .integer = obj.IntegerObject{ .value = int_lit.value } };
+    }
+
+    fn evaluateStringLiteral(_: *Evaluator, str_lit: ast.StringLiteral) EvalError!obj.Object {
+        return obj.Object{ .string = obj.StringObject{ .value = str_lit.value } };
     }
 
     fn evaluatePrefixExpression(self: *Evaluator, expr: ast.PrefixExpression) EvalError!obj.Object {

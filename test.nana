@@ -5,3 +5,8 @@ let c = a + b;
 puts(2);
 puts(b);
 puts(c);
+
+let s = "this is a string";
+puts(s);
+
+puts("and this is a string " + a);

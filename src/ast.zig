@@ -74,6 +74,7 @@ pub const LetStatement = struct {
 pub const Expression = union(enum) {
     identifier: Identifier,
     integer_literal: IntegerLiteral,
+    string_literal: StringLiteral,
     prefix_expression: PrefixExpression,
     infix_expression: InfixExpression,
     call_expression: CallExpression,
@@ -173,6 +174,21 @@ pub const IntegerLiteral = struct {
 
     pub fn string(self: *const IntegerLiteral, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         try writer.writeAll(self.tokenLiteral());
+    }
+};
+
+pub const StringLiteral = struct {
+    token: tok.Token,
+    value: []const u8,
+
+    pub fn tokenLiteral(self: *const StringLiteral) []const u8 {
+        return self.token.literal;
+    }
+
+    pub fn string(self: *const StringLiteral, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+        try writer.writeByte('"');
+        try writer.writeAll(self.value);
+        try writer.writeByte('"');
     }
 };
 

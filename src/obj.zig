@@ -24,6 +24,7 @@ pub const Object = union(enum) {
     @"null": NullObject,
     @"error": ErrorObject,
     builtin: BuiltinObject,
+    string: StringObject,
 
     pub fn _type(self: Object) ObjectType {
         return switch (self) {
@@ -100,5 +101,13 @@ pub const BuiltinObject = struct {
 
     pub fn inspect(_: *const BuiltinObject, writer: *std.Io.Writer) ObjectError!void {
         return try writer.writeAll("builtin function");
+    }
+};
+
+pub const StringObject = struct {
+    value: []const u8,
+
+    pub fn inspect(self: *const StringObject, writer: *std.Io.Writer) ObjectError!void {
+        return try writer.writeAll(self.value);
     }
 };
