@@ -30,6 +30,7 @@ const Precedence = enum(u8) {
 
 fn getPrecedence(token_type: tok.TokenType) Precedence {
     return switch (token_type) {
+        .assign => Precedence.lowest, // Assignment has lowest precedence
         .eq, .not_eq => Precedence.equals,
         .lt, .gt => Precedence.lessgreater,
         .plus, .minus => Precedence.sum,
@@ -251,7 +252,7 @@ pub const Parser = struct {
 
     fn infixFns(self: *Parser) ?*const fn (self: *Parser, left: ast.Expression) ParserError!ast.Expression {
         return switch (self.peek_token.type) {
-            .plus, .minus => parseInfixExpression,
+            .assign, .plus, .minus, .slash, .asterisk, .lt, .gt, .eq, .not_eq => parseInfixExpression,
             else => null,
         };
     }
