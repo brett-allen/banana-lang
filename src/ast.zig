@@ -1,7 +1,23 @@
 const std = @import("std");
 const tok = @import("token.zig");
 
-const Node = enum { Program, Statement, Expression };
+pub const Node = union(enum) {
+    program: Program,
+    statement: Statement,
+    expression: Expression,
+
+    pub fn tokenLiteral(self: Node) []const u8 {
+        return switch (self) {
+            inline else => |node| node.tokenLiteral(),
+        };
+    }
+
+    pub fn string(self: Node, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+        switch (self) {
+            inline else => |node| node.string(writer),
+        }
+    }
+};
 
 pub const Program = struct {
     statements: std.ArrayList(Statement),
@@ -17,6 +33,7 @@ pub const Program = struct {
     pub fn string(self: *const Program, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         for (self.statements.items) |stmt| {
             try stmt.string(writer);
+            try writer.writeByte('\n');
         }
     }
 };
@@ -108,7 +125,7 @@ pub const InfixExpression = struct {
 
     pub fn string(self: *const InfixExpression, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         try self.left.string(writer);
-        try writer.writeAll(self.operator);
+        try writer.print(" {s} ", .{self.operator});
         try self.right.string(writer);
     }
 };
