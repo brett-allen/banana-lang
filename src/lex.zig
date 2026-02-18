@@ -25,7 +25,15 @@ pub const Lexer = struct {
         var tok = token.Token.init(token.TokenType.illegal, "");
 
         switch (self.ch) {
-            '=' => tok = token.Token.init(token.TokenType.assign, "="),
+            '=' => {
+                if (self.peekChar() == '=') {
+                    const start = self.position;
+                    self.readChar(); // consume the second '='
+                    tok = token.Token.init(token.TokenType.eq, self.input[start..self.read_position]);
+                } else {
+                    tok = token.Token.init(token.TokenType.assign, "=");
+                }
+            },
             ';' => tok = token.Token.init(token.TokenType.semicolon, ";"),
             ',' => tok = token.Token.init(token.TokenType.comma, ","),
             '(' => tok = token.Token.init(token.TokenType.lparen, "("),
@@ -40,7 +48,15 @@ pub const Lexer = struct {
             '/' => tok = token.Token.init(token.TokenType.slash, "/"),
             '<' => tok = token.Token.init(token.TokenType.lt, "<"),
             '>' => tok = token.Token.init(token.TokenType.gt, ">"),
-            '!' => tok = token.Token.init(token.TokenType.bang, "!"),
+            '!' => {
+                if (self.peekChar() == '=') {
+                    const start = self.position;
+                    self.readChar(); // consume the '='
+                    tok = token.Token.init(token.TokenType.not_eq, self.input[start..self.read_position]);
+                } else {
+                    tok = token.Token.init(token.TokenType.bang, "!");
+                }
+            },
             '"' => {
                 tok = T(.string, self.readString());
                 return tok;
@@ -114,6 +130,14 @@ pub const Lexer = struct {
     fn skipWhitespace(self: *Lexer) void {
         while (std.ascii.isWhitespace(self.ch)) {
             self.readChar();
+        }
+    }
+
+    fn peekChar(self: *const Lexer) u8 {
+        if (self.read_position >= self.input.len) {
+            return 0;
+        } else {
+            return self.input[self.read_position];
         }
     }
 };

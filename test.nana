@@ -1,3 +1,8 @@
+puts("attention!");
+
+let add = fn(x, y) { x + y; };
+puts(add(2, 3));
+
 let a = 2;
 let b = 3;
 let c = a + b;

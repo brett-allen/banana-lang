@@ -78,6 +78,7 @@ pub const Expression = union(enum) {
     prefix_expression: PrefixExpression,
     infix_expression: InfixExpression,
     call_expression: CallExpression,
+    function_literal: FunctionLiteral,
 
     pub fn string(self: *const Expression, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         switch (self.*) {
@@ -211,5 +212,45 @@ pub const CallExpression = struct {
             }
         }
         try writer.writeByte(')');
+    }
+};
+
+pub const BlockStatement = struct {
+    token: tok.Token,
+    statements: std.ArrayList(Statement),
+
+    pub fn tokenLiteral(self: *const BlockStatement) []const u8 {
+        return self.token.literal;
+    }
+
+    pub fn string(self: *const BlockStatement, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+        for (self.statements.items) |stmt| {
+            try stmt.string(writer);
+        }
+    }
+};
+
+pub const FunctionLiteral = struct {
+    token: tok.Token,
+    parameters: std.ArrayList(Identifier),
+    body: BlockStatement,
+
+    pub fn tokenLiteral(self: *const FunctionLiteral) []const u8 {
+        return self.token.literal;
+    }
+
+    pub fn string(self: *const FunctionLiteral, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+        try writer.writeAll(self.tokenLiteral());
+        try writer.writeByte('(');
+        for (self.parameters.items, 0..) |param, i| {
+            try param.string(writer);
+            if (i < self.parameters.items.len - 1) {
+                try writer.writeAll(", ");
+            }
+        }
+        try writer.writeAll(") {\n");
+        try self.body.string(writer);
+        try writer.writeByte('\n');
+        try writer.writeByte('}');
     }
 };

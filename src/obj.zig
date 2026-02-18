@@ -1,4 +1,5 @@
 const std = @import("std");
+const ast = @import("ast.zig");
 
 pub const ObjectError = std.Io.Writer.Error;
 
@@ -25,6 +26,7 @@ pub const Object = union(enum) {
     @"error": ErrorObject,
     builtin: BuiltinObject,
     string: StringObject,
+    function: FunctionObject,
 
     pub fn _type(self: Object) ObjectType {
         return switch (self) {
@@ -109,5 +111,25 @@ pub const StringObject = struct {
 
     pub fn inspect(self: *const StringObject, writer: *std.Io.Writer) ObjectError!void {
         return try writer.writeAll(self.value);
+    }
+};
+
+// Environment is defined in evaluator.zig - we'll use a pointer type
+pub const FunctionObject = struct {
+    parameters: []const []const u8, // Parameter names
+    body: *const ast.BlockStatement, // Function body
+    env: *anyopaque, // Closure environment (will be cast to *Environment in evaluator)
+
+    pub fn inspect(self: *const FunctionObject, writer: *std.Io.Writer) ObjectError!void {
+        try writer.writeAll("fn(");
+        for (self.parameters, 0..) |param, i| {
+            try writer.writeAll(param);
+            if (i < self.parameters.len - 1) {
+                try writer.writeAll(", ");
+            }
+        }
+        try writer.writeAll(") {\n");
+        // TODO: print body
+        try writer.writeAll("}");
     }
 };

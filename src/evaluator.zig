@@ -143,6 +143,9 @@ pub const Evaluator = struct {
             .call_expression => |call_expr| {
                 return try self.evaluateCallExpression(call_expr);
             },
+            .function_literal => |func_lit| {
+                return try self.evaluateFunctionLiteral(func_lit);
+            },
         };
     }
 
@@ -335,10 +338,87 @@ pub const Evaluator = struct {
                     return obj.Object{ .@"error" = obj.ErrorObject{ .message = msg } };
                 };
             },
+            .function => |func_obj| {
+                return try self.callFunction(func_obj, args.items);
+            },
             else => {
                 const msg = try self.heap.dupe(u8, "not a function");
                 return obj.Object{ .@"error" = obj.ErrorObject{ .message = msg } };
             },
         };
+    }
+
+    fn evaluateFunctionLiteral(self: *Evaluator, func_lit: ast.FunctionLiteral) EvalError!obj.Object {
+        // Extract parameter names
+        const param_names = try self.heap.alloc([]const u8, func_lit.parameters.items.len);
+        for (func_lit.parameters.items, 0..) |param, i| {
+            param_names[i] = try self.heap.dupe(u8, param.value);
+        }
+        
+        // Store body pointer
+        const body_ptr = try self.heap.create(ast.BlockStatement);
+        body_ptr.* = func_lit.body;
+        
+        // Create function object with current environment (closure)
+        return obj.Object{
+            .function = obj.FunctionObject{
+                .parameters = param_names,
+                .body = body_ptr,
+                .env = @ptrCast(&self.env),
+            },
+        };
+    }
+
+    fn callFunction(self: *Evaluator, func_obj: obj.FunctionObject, args: []const obj.Object) EvalError!obj.Object {
+        // Check argument count
+        if (args.len != func_obj.parameters.len) {
+            const msg = try std.fmt.allocPrint(
+                self.heap,
+                "wrong number of arguments: got {d}, want {d}",
+                .{ args.len, func_obj.parameters.len }
+            );
+            return obj.Object{ .@"error" = obj.ErrorObject{ .message = msg } };
+        }
+        
+        // Create extended environment for function call
+        var extended_env = Environment.init(self.heap);
+        errdefer extended_env.deinit();
+        
+        // Cast the closure environment back to Environment
+        const closure_env = @as(*const Environment, @alignCast(@ptrCast(func_obj.env)));
+        
+        // Copy closure environment to extended environment
+        var it = closure_env.store.iterator();
+        while (it.next()) |entry| {
+            try extended_env.set(entry.key_ptr.*, entry.value_ptr.*);
+        }
+        
+        // Bind arguments to parameters
+        for (func_obj.parameters, args) |param_name, arg_value| {
+            try extended_env.set(param_name, arg_value);
+        }
+        
+        // Evaluate function body in extended environment
+        const old_env = self.env;
+        self.env = extended_env;
+        
+        var result: ?obj.Object = null;
+        for (func_obj.body.statements.items) |stmt| {
+            result = try self.evaluateStatement(stmt);
+            // Check for error objects
+            if (result) |res| {
+                if (res == .@"error") {
+                    self.env = old_env;
+                    extended_env.deinit();
+                    return res;
+                }
+            }
+        }
+        
+        // Restore old environment before deinitializing extended_env
+        self.env = old_env;
+        extended_env.deinit();
+        
+        return result orelse obj.Object{ .@"null" = obj.NullObject{ .value = {} } };
     }
 };

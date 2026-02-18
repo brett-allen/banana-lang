@@ -53,6 +53,7 @@ pub const Token = struct {
 const Keywords = [_]Token{
     Token{ .type = .let, .literal = "let" },
     Token{ .type = .function, .literal = "function" },
+    Token{ .type = .function, .literal = "fn" },
     Token{ .type = .@"if", .literal = "if" },
     Token{ .type = .@"else", .literal = "else" },
     Token{ .type = .@"return", .literal = "return" },
