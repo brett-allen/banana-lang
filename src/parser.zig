@@ -108,7 +108,7 @@ pub const Parser = struct {
         self.nextToken();
         const value = try self.parseExpression(Precedence.lowest);
 
-        if (self.curTokenIs(.semicolon)) {
+        if (self.peekTokenIs(.semicolon)) {
             self.nextToken();
         }
 
@@ -405,6 +405,8 @@ pub const Parser = struct {
             }
             if (try self.parseStatement()) |stmt| {
                 try statements.append(self.heap, stmt);
+                // Advance past the last token of the statement so we don't re-parse it
+                self.nextToken();
             }
         }
         
