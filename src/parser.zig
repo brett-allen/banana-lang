@@ -63,7 +63,6 @@ pub const Parser = struct {
     pub fn parseProgram(self: *Parser) !ast.Program {
         var program = ast.Program{ .statements = std.ArrayList(ast.Statement){} };
         while (self.current_token.type != .eof) {
-
             const stmt = try self.parseStatement();
             if (stmt) |s| {
                 try program.statements.append(self.heap, s);
@@ -74,7 +73,7 @@ pub const Parser = struct {
         return program;
     }
 
-    fn parseStatement(self: *Parser) !?ast.Statement {
+    fn parseStatement(self: *Parser) ParserError!?ast.Statement {
         // If we're on a closing brace or semicolon, there's no statement to parse
         if (self.curTokenIs(.rbrace) or self.curTokenIs(.semicolon) or self.curTokenIs(.eof)) {
             return null;
@@ -82,6 +81,9 @@ pub const Parser = struct {
         return switch (self.current_token.type) {
             .let => ast.Statement{
                 .let_statement = try self.parseLetStatement(),
+            },
+            .lbrace => ast.Statement{
+                .block_statement = try self.parseBlockStatement(),
             },
             else => ast.Statement{
                 .expression_statement = try self.parseExpressionStatement(),
@@ -149,7 +151,7 @@ pub const Parser = struct {
 
             left = try infixFn(self, left);
         }
-        
+
         return left;
     }
 
@@ -204,7 +206,7 @@ pub const Parser = struct {
 
         return exp;
     }
-    
+
     //
     // literals
     fn parseIdentifier(self: *Parser) !ast.Expression {
@@ -231,6 +233,15 @@ pub const Parser = struct {
             .string_literal = ast.StringLiteral{
                 .token = self.current_token,
                 .value = self.current_token.literal,
+            },
+        };
+    }
+
+    fn parseBooleanLiteral(self: *const Parser) !ast.Expression {
+        return ast.Expression{
+            .boolean_literal = ast.BooleanLiteral{
+                .token = self.current_token,
+                .value = self.curTokenIs(.true),
             },
         };
     }
@@ -274,8 +285,10 @@ pub const Parser = struct {
             .int => parseIntegerLiteral,
             .bang, .minus => parsePrefixExpression,
             .string => parseStringLiteral,
+            .true, .false => parseBooleanLiteral,
             .lparen => parseGroupedExpression,
             .function => parseFunctionLiteral,
+            .@"if" => parseIfExpression,
             else => null,
         };
     }
@@ -291,7 +304,7 @@ pub const Parser = struct {
     fn parseCallExpression(self: *Parser, function: ast.Expression) !ast.Expression {
         const token = self.current_token;
         const args = try self.parseExpressionList(.rparen);
-        
+
         const function_ptr = try self.heap.create(ast.Expression);
         function_ptr.* = function;
 
@@ -330,21 +343,21 @@ pub const Parser = struct {
 
     fn parseFunctionLiteral(self: *Parser) !ast.Expression {
         const token = self.current_token;
-        
+
         if (!self.expectPeek(.lparen)) {
             return ParserError.MissingLeftParenthesis;
         }
-        
+
         const params = try self.parseFunctionParameters();
-        
+
         if (!self.expectPeek(.lbrace)) {
             return ParserError.MissingLeftBrace;
         }
-        
+
         const body = try self.parseBlockStatement();
         // parseBlockStatement already advanced past the closing brace
         // So we're already past the function literal
-        
+
         return ast.Expression{
             .function_literal = ast.FunctionLiteral{
                 .token = token,
@@ -354,22 +367,67 @@ pub const Parser = struct {
         };
     }
 
+    fn parseIfExpression(self: *Parser) !ast.Expression {
+        // Save the 'if' token
+        const token = self.current_token;
+        if (!self.expectPeek(.lparen)) {
+            return ParserError.MissingLeftParenthesis;
+        }
+        //
+        // Advance past the '(' to get to the condition
+        self.nextToken();
+        //
+        // Parse the condition
+        const condition = try self.heap.create(ast.Expression);
+        condition.* = try self.parseExpression(Precedence.lowest);
+        if (!self.expectPeek(.rparen)) {
+            return ParserError.MissingRightParenthesis;
+        }
+        //
+        // Parse the consequence
+        if (!self.expectPeek(.lbrace)) {
+            return ParserError.MissingLeftBrace;
+        }
+
+        const consequence = try self.parseBlockStatement();
+        //
+        // Parse the else alternative (after consequence block, current_token is already 'else')
+        var alternative: ?ast.BlockStatement = null;
+
+        if (self.curTokenIs(.@"else")) {
+            self.nextToken(); // consume 'else', now current_token is '{'
+            if (!self.curTokenIs(.lbrace)) {
+                return ParserError.MissingLeftBrace;
+            }
+            alternative = try self.parseBlockStatement();
+        }
+
+        return ast.Expression{
+            .if_expression = ast.IfExpression{
+                .token = token,
+                .condition = condition,
+                .consequence = consequence,
+                .alternative = alternative,
+            },
+        };
+    }
+
     fn parseFunctionParameters(self: *Parser) !std.ArrayList(ast.Identifier) {
         var identifiers = std.ArrayList(ast.Identifier){};
-        
+
         if (self.peekTokenIs(.rparen)) {
             self.nextToken();
             return identifiers;
         }
-        
+
         self.nextToken();
-        
+
         var ident = ast.Identifier{
             .token = self.current_token,
             .value = self.current_token.literal,
         };
         try identifiers.append(self.heap, ident);
-        
+
         while (self.peekTokenIs(.comma)) {
             self.nextToken();
             self.nextToken();
@@ -379,24 +437,24 @@ pub const Parser = struct {
             };
             try identifiers.append(self.heap, ident);
         }
-        
+
         if (!self.expectPeek(.rparen)) {
             return ParserError.MissingRightParenthesis;
         }
-        
+
         return identifiers;
     }
 
     fn parseBlockStatement(self: *Parser) !ast.BlockStatement {
         const token = self.current_token; // This should be the '{' token
         var statements = std.ArrayList(ast.Statement){};
-        
+
         // expectPeek(.lbrace) already advanced us past '{', so current_token is first token inside
-        // But wait - let me check: expectPeek checks peek_token, so if peek was '{', 
+        // But wait - let me check: expectPeek checks peek_token, so if peek was '{',
         // then after expectPeek, current_token is '{' and peek_token is first token inside
         // So we need to advance past '{'
         self.nextToken();
-        
+
         while (!self.curTokenIs(.rbrace) and !self.curTokenIs(.eof)) {
             // Skip semicolons - they're statement terminators
             if (self.curTokenIs(.semicolon)) {
@@ -409,13 +467,13 @@ pub const Parser = struct {
                 self.nextToken();
             }
         }
-        
+
         // Consume the closing '}'
         if (!self.curTokenIs(.rbrace)) {
             return ParserError.MissingRightBrace;
         }
         self.nextToken();
-        
+
         return ast.BlockStatement{
             .token = token,
             .statements = statements,

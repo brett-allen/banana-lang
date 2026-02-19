@@ -15,7 +15,7 @@ fn builtinPuts(allocator: std.mem.Allocator, args: []const obj.Object) anyerror!
         try writer.flush();
     }
     _ = allocator;
-    return obj.Object{ .@"null" = obj.NullObject{ .value = {} } };
+    return obj.Object{ .null = obj.NullObject{ .value = {} } };
 }
 
 pub const EvalError = error{
@@ -23,15 +23,26 @@ pub const EvalError = error{
     VariableNotFound,
 } || std.mem.Allocator.Error || std.Io.Writer.Error;
 
-// Environment to store variable bindings
+// Environment to store variable bindings. Supports closure chain via outer.
 pub const Environment = struct {
     heap: std.mem.Allocator,
     store: std.StringHashMap(obj.Object),
+    outer: ?*const Environment = null,
 
     pub fn init(heap: std.mem.Allocator) Environment {
-        return Environment{
+        return .{
             .heap = heap,
             .store = std.StringHashMap(obj.Object).init(heap),
+            .outer = null,
+        };
+    }
+
+    /// Create a new environment that chains to this one (for function calls / closures).
+    pub fn enclose(self: *const Environment) Environment {
+        return .{
+            .heap = self.heap,
+            .store = std.StringHashMap(obj.Object).init(self.heap),
+            .outer = self,
         };
     }
 
@@ -40,16 +51,15 @@ pub const Environment = struct {
     }
 
     pub fn get(self: *const Environment, name: []const u8) ?obj.Object {
-        return self.store.get(name);
+        if (self.store.get(name)) |value| return value;
+        if (self.outer) |outer| return outer.get(name);
+        return null;
     }
 
     pub fn set(self: *Environment, name: []const u8, value: obj.Object) !void {
-        // Check if key already exists
         if (self.store.getEntry(name)) |entry| {
-            // Key exists - just update the value
             entry.value_ptr.* = value;
         } else {
-            // New key - allocate a copy and insert
             const name_copy = try self.heap.dupe(u8, name);
             try self.store.put(name_copy, value);
         }
@@ -109,6 +119,9 @@ pub const Evaluator = struct {
             .expression_statement => |exp_stmt| {
                 return try self.evaluateExpression(exp_stmt.expression);
             },
+            .block_statement => |block| {
+                return try self.evaluateBlockStatement(block);
+            },
         };
     }
 
@@ -134,6 +147,9 @@ pub const Evaluator = struct {
             .string_literal => |str_lit| {
                 return self.evaluateStringLiteral(str_lit);
             },
+            .boolean_literal => |bool_lit| {
+                return self.evaluateBooleanLiteral(bool_lit);
+            },
             .prefix_expression => |prefix_expr| {
                 return try self.evaluatePrefixExpression(prefix_expr);
             },
@@ -146,6 +162,44 @@ pub const Evaluator = struct {
             .function_literal => |func_lit| {
                 return try self.evaluateFunctionLiteral(func_lit);
             },
+            .if_expression => |if_expr| {
+                return try self.evaluateIfExpression(if_expr);
+            },
+        };
+    }
+
+    fn evaluateBlockStatement(self: *Evaluator, block: ast.BlockStatement) EvalError!?obj.Object {
+        var result: ?obj.Object = null;
+        for (block.statements.items) |stmt| {
+            result = try self.evaluateStatement(stmt);
+            if (result) |res| {
+                if (res == .@"error") return res;
+            }
+        }
+        return result;
+    }
+
+    fn evaluateIfExpression(self: *Evaluator, if_expr: ast.IfExpression) EvalError!obj.Object {
+        const cond = try self.evaluateExpression(if_expr.condition.*);
+        if (cond == .@"error") return cond;
+        if (self.isTruthy(cond)) {
+            const result = try self.evaluateBlockStatement(if_expr.consequence);
+            return result orelse obj.Object{ .null = obj.NullObject{ .value = {} } };
+        }
+        if (if_expr.alternative) |alt| {
+            const result = try self.evaluateBlockStatement(alt);
+            return result orelse obj.Object{ .null = obj.NullObject{ .value = {} } };
+        }
+        return obj.Object{ .null = obj.NullObject{ .value = {} } };
+    }
+
+    fn isTruthy(self: *Evaluator, obj_val: obj.Object) bool {
+        _ = self;
+        return switch (obj_val) {
+            .null => false,
+            .integer => |int| int.value != 0,
+            .boolean => |b| b.value,
+            else => true,
         };
     }
 
@@ -168,6 +222,10 @@ pub const Evaluator = struct {
         return obj.Object{ .string = obj.StringObject{ .value = str_lit.value } };
     }
 
+    fn evaluateBooleanLiteral(_: *Evaluator, bool_lit: ast.BooleanLiteral) EvalError!obj.Object {
+        return obj.Object{ .boolean = obj.BooleanObject{ .value = bool_lit.value } };
+    }
+
     fn evaluatePrefixExpression(self: *Evaluator, expr: ast.PrefixExpression) EvalError!obj.Object {
         const right = try self.evaluateExpression(expr.right.*);
         // Check for error objects
@@ -179,16 +237,16 @@ pub const Evaluator = struct {
             '!' => {
                 return switch (right) {
                     .integer => |int_obj| obj.Object{ .integer = obj.IntegerObject{ .value = if (int_obj.value == 0) 1 else 0 } },
-                    else => obj.Object{ .@"null" = obj.NullObject{ .value = {} } },
+                    else => obj.Object{ .null = obj.NullObject{ .value = {} } },
                 };
             },
             '-' => {
                 return switch (right) {
                     .integer => |int_obj| obj.Object{ .integer = obj.IntegerObject{ .value = -int_obj.value } },
-                    else => obj.Object{ .@"null" = obj.NullObject{ .value = {} } },
+                    else => obj.Object{ .null = obj.NullObject{ .value = {} } },
                 };
             },
-            else => obj.Object{ .@"null" = obj.NullObject{ .value = {} } },
+            else => obj.Object{ .null = obj.NullObject{ .value = {} } },
         };
     }
 
@@ -203,23 +261,20 @@ pub const Evaluator = struct {
         if (left_obj == .@"error") {
             return left_obj;
         }
-        
+
         const right_obj = try self.evaluateExpression(expr.right.*);
         // Check for error objects
         if (right_obj == .@"error") {
             return right_obj;
         }
 
-        // Handle + operator: integer addition or string concatenation
+        // + : integer addition or string concatenation (same-type operands only)
         if (std.mem.eql(u8, expr.operator, "+")) {
-            // If both are integers, do integer addition
             if (left_obj == .integer and right_obj == .integer) {
                 const left_val = left_obj.integer.value;
                 const right_val = right_obj.integer.value;
                 return obj.Object{ .integer = obj.IntegerObject{ .value = left_val + right_val } };
             }
-            
-            // If both are strings, concatenate directly
             if (left_obj == .string and right_obj == .string) {
                 const left_str = left_obj.string.value;
                 const right_str = right_obj.string.value;
@@ -229,57 +284,18 @@ pub const Evaluator = struct {
                 @memcpy(concat[left_str.len..], right_str);
                 return obj.Object{ .string = obj.StringObject{ .value = concat } };
             }
-            
-            // Otherwise, convert to strings and concatenate
-            // Use fixed buffers for integer conversion to avoid intermediate allocations
-            var left_buffer: [64]u8 = undefined;
-            var right_buffer: [64]u8 = undefined;
-            
-            const left_str = blk: {
-                switch (left_obj) {
-                    .string => |str_obj| break :blk str_obj.value,
-                    .integer => |int_obj| {
-                        const str = std.fmt.bufPrint(&left_buffer, "{d}", .{int_obj.value}) catch {
-                            const msg = try self.heap.dupe(u8, "integer too large to convert");
-                            return obj.Object{ .@"error" = obj.ErrorObject{ .message = msg } };
-                        };
-                        break :blk str;
-                    },
-                    else => return obj.Object{ .@"null" = obj.NullObject{ .value = {} } },
-                }
-            };
-            
-            const right_str = blk: {
-                switch (right_obj) {
-                    .string => |str_obj| break :blk str_obj.value,
-                    .integer => |int_obj| {
-                        const str = std.fmt.bufPrint(&right_buffer, "{d}", .{int_obj.value}) catch {
-                            const msg = try self.heap.dupe(u8, "integer too large to convert");
-                            return obj.Object{ .@"error" = obj.ErrorObject{ .message = msg } };
-                        };
-                        break :blk str;
-                    },
-                    else => return obj.Object{ .@"null" = obj.NullObject{ .value = {} } },
-                }
-            };
-
-            // Allocate once for the concatenated string
-            const total_len = left_str.len + right_str.len;
-            const concat = try self.heap.alloc(u8, total_len);
-            @memcpy(concat[0..left_str.len], left_str);
-            @memcpy(concat[left_str.len..], right_str);
-            
-            return obj.Object{ .string = obj.StringObject{ .value = concat } };
+            const msg = try self.heap.dupe(u8, "type mismatch: + requires both integers or both strings");
+            return obj.Object{ .@"error" = obj.ErrorObject{ .message = msg } };
         }
 
         // Both operands must be integers for other arithmetic operations
         const left = switch (left_obj) {
             .integer => |int_obj| int_obj.value,
-            else => return obj.Object{ .@"null" = obj.NullObject{ .value = {} } },
+            else => return obj.Object{ .null = obj.NullObject{ .value = {} } },
         };
         const right = switch (right_obj) {
             .integer => |int_obj| int_obj.value,
-            else => return obj.Object{ .@"null" = obj.NullObject{ .value = {} } },
+            else => return obj.Object{ .null = obj.NullObject{ .value = {} } },
         };
 
         return switch (expr.operator[0]) {
@@ -288,7 +304,7 @@ pub const Evaluator = struct {
             '/' => obj.Object{ .integer = obj.IntegerObject{ .value = @divTrunc(left, right) } },
             '<' => obj.Object{ .integer = obj.IntegerObject{ .value = if (left < right) 1 else 0 } },
             '>' => obj.Object{ .integer = obj.IntegerObject{ .value = if (left > right) 1 else 0 } },
-            else => obj.Object{ .@"null" = obj.NullObject{ .value = {} } },
+            else => obj.Object{ .null = obj.NullObject{ .value = {} } },
         };
     }
 
@@ -296,7 +312,7 @@ pub const Evaluator = struct {
         // Left side must be an identifier
         const left_ident = switch (expr.left.*) {
             .identifier => |ident| ident,
-            else => return obj.Object{ .@"null" = obj.NullObject{ .value = {} } },
+            else => return obj.Object{ .null = obj.NullObject{ .value = {} } },
         };
 
         const value = try self.evaluateExpression(expr.right.*);
@@ -311,15 +327,15 @@ pub const Evaluator = struct {
 
     fn evaluateCallExpression(self: *Evaluator, expr: ast.CallExpression) EvalError!obj.Object {
         const function = try self.evaluateExpression(expr.function.*);
-        
+
         // If function evaluation returned an error object, return it
         if (function == .@"error") {
             return function;
         }
-        
+
         var args = std.ArrayList(obj.Object){};
         defer args.deinit(self.heap);
-        
+
         for (expr.arguments.items) |arg| {
             const evaluated = try self.evaluateExpression(arg);
             // Check for error objects in arguments
@@ -354,11 +370,11 @@ pub const Evaluator = struct {
         for (func_lit.parameters.items, 0..) |param, i| {
             param_names[i] = try self.heap.dupe(u8, param.value);
         }
-        
+
         // Store body pointer
         const body_ptr = try self.heap.create(ast.BlockStatement);
         body_ptr.* = func_lit.body;
-        
+
         // Create function object with current environment (closure)
         return obj.Object{
             .function = obj.FunctionObject{
@@ -370,55 +386,28 @@ pub const Evaluator = struct {
     }
 
     fn callFunction(self: *Evaluator, func_obj: obj.FunctionObject, args: []const obj.Object) EvalError!obj.Object {
-        // Check argument count
         if (args.len != func_obj.parameters.len) {
             const msg = try std.fmt.allocPrint(
                 self.heap,
                 "wrong number of arguments: got {d}, want {d}",
-                .{ args.len, func_obj.parameters.len }
+                .{ args.len, func_obj.parameters.len },
             );
             return obj.Object{ .@"error" = obj.ErrorObject{ .message = msg } };
         }
-        
-        // Create extended environment for function call
-        var extended_env = Environment.init(self.heap);
-        errdefer extended_env.deinit();
-        
-        // Cast the closure environment back to Environment
-        const closure_env = @as(*const Environment, @alignCast(@ptrCast(func_obj.env)));
-        
-        // Copy closure environment to extended environment
-        var it = closure_env.store.iterator();
-        while (it.next()) |entry| {
-            try extended_env.set(entry.key_ptr.*, entry.value_ptr.*);
-        }
-        
-        // Bind arguments to parameters
+
+        const closure_env = @as(*const Environment, @ptrCast(@alignCast(func_obj.env)));
+        var extended_env = closure_env.enclose();
+        defer extended_env.deinit();
+
         for (func_obj.parameters, args) |param_name, arg_value| {
             try extended_env.set(param_name, arg_value);
         }
-        
-        // Evaluate function body in extended environment
+
         const old_env = self.env;
         self.env = extended_env;
-        
-        var result: ?obj.Object = null;
-        for (func_obj.body.statements.items) |stmt| {
-            result = try self.evaluateStatement(stmt);
-            // Check for error objects
-            if (result) |res| {
-                if (res == .@"error") {
-                    self.env = old_env;
-                    extended_env.deinit();
-                    return res;
-                }
-            }
-        }
-        
-        // Restore old environment before deinitializing extended_env
-        self.env = old_env;
-        extended_env.deinit();
-        
-        return result orelse obj.Object{ .@"null" = obj.NullObject{ .value = {} } };
+        defer self.env = old_env;
+
+        const result = try self.evaluateBlockStatement(func_obj.body.*);
+        return result orelse obj.Object{ .null = obj.NullObject{ .value = {} } };
     }
 };

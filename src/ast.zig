@@ -41,6 +41,7 @@ pub const Program = struct {
 pub const Statement = union(enum) {
     let_statement: LetStatement,
     expression_statement: ExpressionStatement,
+    block_statement: BlockStatement,
 
     pub fn string(self: Statement, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         switch (self) {
@@ -75,10 +76,12 @@ pub const Expression = union(enum) {
     identifier: Identifier,
     integer_literal: IntegerLiteral,
     string_literal: StringLiteral,
+    boolean_literal: BooleanLiteral,
     prefix_expression: PrefixExpression,
     infix_expression: InfixExpression,
     call_expression: CallExpression,
     function_literal: FunctionLiteral,
+    if_expression: IfExpression,
 
     pub fn string(self: *const Expression, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         switch (self.*) {
@@ -193,6 +196,19 @@ pub const StringLiteral = struct {
     }
 };
 
+pub const BooleanLiteral = struct {
+    token: tok.Token,
+    value: bool,
+
+    pub fn tokenLiteral(self: *const BooleanLiteral) []const u8 {
+        return self.token.literal;
+    }
+
+    pub fn string(self: *const BooleanLiteral, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+        try writer.print("{}", .{self.value});
+    }
+};
+
 pub const CallExpression = struct {
     token: tok.Token,
     function: *Expression,
@@ -226,6 +242,28 @@ pub const BlockStatement = struct {
     pub fn string(self: *const BlockStatement, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         for (self.statements.items) |stmt| {
             try stmt.string(writer);
+        }
+    }
+};
+
+pub const IfExpression = struct {
+    token: tok.Token,
+    condition: *Expression,
+    consequence: BlockStatement,
+    alternative: ?BlockStatement,
+
+    pub fn tokenLiteral(self: *const IfExpression) []const u8 {
+        return self.token.literal;
+    }
+
+    pub fn string(self: *const IfExpression, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+        try writer.writeAll("if ");
+        try self.condition.string(writer);
+        try writer.writeAll(" ");
+        try self.consequence.string(writer);
+        if (self.alternative) |alt| {
+            try writer.writeAll(" else ");
+            try alt.string(writer);
         }
     }
 };
