@@ -68,13 +68,18 @@ pub const Environment = struct {
 
 pub const Evaluator = struct {
     heap: std.mem.Allocator,
-    env: Environment,
+    /// Global environment; never overwritten so closure pointers stay valid.
+    global_env: Environment,
+    /// Current environment (always points at global_env or a temporary extended env).
+    env: *Environment,
 
     pub fn init(heap: std.mem.Allocator) Evaluator {
         var eval = Evaluator{
             .heap = heap,
-            .env = Environment.init(heap),
+            .global_env = Environment.init(heap),
+            .env = undefined,
         };
+        eval.env = &eval.global_env;
         eval.initBuiltins() catch {};
         return eval;
     }
@@ -84,8 +89,10 @@ pub const Evaluator = struct {
         try self.env.set("puts", puts_obj);
     }
 
+    /// Call only when heap is not an ArenaAllocator (arena free() can't handle
+    /// HashMap's per-entry frees). With an arena, let the arena tear down everything.
     pub fn deinit(self: *Evaluator) void {
-        self.env.deinit();
+        self.global_env.deinit();
     }
 
     pub fn evaluate(self: *Evaluator, node: ast.Node) EvalError!?obj.Object {
@@ -375,12 +382,14 @@ pub const Evaluator = struct {
         const body_ptr = try self.heap.create(ast.BlockStatement);
         body_ptr.* = func_lit.body;
 
-        // Create function object with current environment (closure)
+        // Create function object with pointer to current environment (closure); must store
+        // the env pointer, not &self.env, so when we replace self.env during a call the
+        // closure still points at the real outer env.
         return obj.Object{
             .function = obj.FunctionObject{
                 .parameters = param_names,
                 .body = body_ptr,
-                .env = @ptrCast(&self.env),
+                .env = @ptrCast(self.env),
             },
         };
     }
@@ -404,7 +413,7 @@ pub const Evaluator = struct {
         }
 
         const old_env = self.env;
-        self.env = extended_env;
+        self.env = &extended_env;
         defer self.env = old_env;
 
         const result = try self.evaluateBlockStatement(func_obj.body.*);

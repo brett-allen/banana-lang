@@ -28,7 +28,10 @@ pub fn main() !void {
     const lexer = lex.Lexer.init(file_contents);
 
     var p = parser.Parser.init(heap, lexer);
-    var program = try p.parseProgram();
+    const program = p.parseProgram() catch |err| {
+        std.debug.print("parse error: {s}\n", .{parser.parseErrorMessage(err)});
+        std.process.exit(1);
+    };
 
     const stdout_buffer = try heap.alloc(u8, 4096);
     defer heap.free(stdout_buffer);
@@ -39,9 +42,9 @@ pub fn main() !void {
 
     std.debug.print("\n", .{});
 
-    // Evaluate the program
+    // Evaluate the program (arena owns all env/store memory; don't call eval.deinit()
+    // or HashMap will try to free arena chunks and crash)
     var eval = evaluator.Evaluator.init(heap);
-    defer eval.deinit();
 
     const result = eval.evaluate(.{ .program = program }) catch |err| {
         std.debug.print("Error: {}\n", .{err});

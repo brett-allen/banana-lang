@@ -16,6 +16,23 @@ const ParserError = error{
     UnknownOperatorToken,
 } || std.mem.Allocator.Error || std.fmt.ParseIntError;
 
+/// Returns a short, user-friendly message for a parse error (no stack trace).
+pub fn parseErrorMessage(err: ParserError) []const u8 {
+    return switch (err) {
+        ParserError.MissingLetAssign => "expected '=' after identifier in let",
+        ParserError.MissingLetIdentifier => "expected identifier after let",
+        ParserError.MissingLeftBrace => "expected '{'",
+        ParserError.MissingLeftParenthesis => "expected '('",
+        ParserError.MissingRightBrace => "expected '}'",
+        ParserError.MissingRightBracket => "expected ']'",
+        ParserError.MissingRightParenthesis => "expected ')'",
+        ParserError.MissingColon => "expected ':'",
+        ParserError.UnknownPrefixToken => "unexpected token (invalid expression)",
+        ParserError.UnknownOperatorToken => "unexpected operator",
+        else => "parse error",
+    };
+}
+
 //
 // part of the Pratt parsing magic
 const Precedence = enum(u8) {
@@ -355,9 +372,7 @@ pub const Parser = struct {
         }
 
         const body = try self.parseBlockStatement();
-        // parseBlockStatement already advanced past the closing brace
-        // So we're already past the function literal
-
+        // Leave current_token on '}' so parseLetStatement's caller sees it and nextToken() gets to next statement
         return ast.Expression{
             .function_literal = ast.FunctionLiteral{
                 .token = token,
@@ -390,8 +405,11 @@ pub const Parser = struct {
         }
 
         const consequence = try self.parseBlockStatement();
+        if (self.curTokenIs(.rbrace)) {
+            self.nextToken(); // advance past '}'
+        }
         //
-        // Parse the else alternative (after consequence block, current_token is already 'else')
+        // Parse the else alternative
         var alternative: ?ast.BlockStatement = null;
 
         if (self.curTokenIs(.@"else")) {
@@ -468,11 +486,10 @@ pub const Parser = struct {
             }
         }
 
-        // Consume the closing '}'
+        // Leave current_token on '}' so callers advance correctly (avoid skipping next statement)
         if (!self.curTokenIs(.rbrace)) {
             return ParserError.MissingRightBrace;
         }
-        self.nextToken();
 
         return ast.BlockStatement{
             .token = token,
