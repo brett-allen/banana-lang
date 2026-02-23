@@ -18,6 +18,89 @@ fn builtinPuts(allocator: std.mem.Allocator, args: []const obj.Object) anyerror!
     return obj.Object{ .null = obj.NullObject{ .value = {} } };
 }
 
+fn builtinLen(allocator: std.mem.Allocator, args: []const obj.Object) anyerror!obj.Object {
+    if (args.len != 1) {
+        const msg = try std.fmt.allocPrint(allocator, "wrong number of arguments: got {d}, want 1", .{args.len});
+        return obj.Object{ .@"error" = obj.ErrorObject{ .message = msg } };
+    }
+    return switch (args[0]) {
+        .string => |s| obj.Object{ .integer = obj.IntegerObject{ .value = @intCast(s.value.len) } },
+        .array => |a| obj.Object{ .integer = obj.IntegerObject{ .value = @intCast(a.elements.len) } },
+        else => {
+            const msg = try std.fmt.allocPrint(allocator, "argument to `len` not supported, got {s}", .{args[0]._type()});
+            return obj.Object{ .@"error" = obj.ErrorObject{ .message = msg } };
+        },
+    };
+}
+
+fn builtinFirst(allocator: std.mem.Allocator, args: []const obj.Object) anyerror!obj.Object {
+    if (args.len != 1) {
+        const msg = try std.fmt.allocPrint(allocator, "wrong number of arguments: got {d}, want 1", .{args.len});
+        return obj.Object{ .@"error" = obj.ErrorObject{ .message = msg } };
+    }
+    return switch (args[0]) {
+        .array => |a| if (a.elements.len == 0) obj.Object{ .null = obj.NullObject{ .value = {} } } else a.elements[0],
+        else => {
+            const msg = try std.fmt.allocPrint(allocator, "argument to `first` must be array, got {s}", .{args[0]._type()});
+            return obj.Object{ .@"error" = obj.ErrorObject{ .message = msg } };
+        },
+    };
+}
+
+fn builtinLast(allocator: std.mem.Allocator, args: []const obj.Object) anyerror!obj.Object {
+    if (args.len != 1) {
+        const msg = try std.fmt.allocPrint(allocator, "wrong number of arguments: got {d}, want 1", .{args.len});
+        return obj.Object{ .@"error" = obj.ErrorObject{ .message = msg } };
+    }
+    return switch (args[0]) {
+        .array => |a| if (a.elements.len == 0) obj.Object{ .null = obj.NullObject{ .value = {} } } else a.elements[a.elements.len - 1],
+        else => {
+            const msg = try std.fmt.allocPrint(allocator, "argument to `last` must be array, got {s}", .{args[0]._type()});
+            return obj.Object{ .@"error" = obj.ErrorObject{ .message = msg } };
+        },
+    };
+}
+
+fn builtinRest(allocator: std.mem.Allocator, args: []const obj.Object) anyerror!obj.Object {
+    if (args.len != 1) {
+        const msg = try std.fmt.allocPrint(allocator, "wrong number of arguments: got {d}, want 1", .{args.len});
+        return obj.Object{ .@"error" = obj.ErrorObject{ .message = msg } };
+    }
+    return switch (args[0]) {
+        .array => |a| blk: {
+            if (a.elements.len <= 1) {
+                break :blk obj.Object{ .array = obj.ArrayObject{ .elements = &[_]obj.Object{} } };
+            }
+            const tail = try allocator.dupe(obj.Object, a.elements[1..]);
+            break :blk obj.Object{ .array = obj.ArrayObject{ .elements = tail } };
+        },
+        else => {
+            const msg = try std.fmt.allocPrint(allocator, "argument to `rest` must be array, got {s}", .{args[0]._type()});
+            return obj.Object{ .@"error" = obj.ErrorObject{ .message = msg } };
+        },
+    };
+}
+
+fn builtinPush(allocator: std.mem.Allocator, args: []const obj.Object) anyerror!obj.Object {
+    if (args.len != 2) {
+        const msg = try std.fmt.allocPrint(allocator, "wrong number of arguments: got {d}, want 2", .{args.len});
+        return obj.Object{ .@"error" = obj.ErrorObject{ .message = msg } };
+    }
+    return switch (args[0]) {
+        .array => |a| blk: {
+            const new_len = a.elements.len + 1;
+            const new_elems = try allocator.alloc(obj.Object, new_len);
+            @memcpy(new_elems[0..a.elements.len], a.elements);
+            new_elems[a.elements.len] = args[1];
+            break :blk obj.Object{ .array = obj.ArrayObject{ .elements = new_elems } };
+        },
+        else => {
+            const msg = try std.fmt.allocPrint(allocator, "argument to `push` must be array, got {s}", .{args[0]._type()});
+            return obj.Object{ .@"error" = obj.ErrorObject{ .message = msg } };
+        },
+    };
+}
+
 pub const EvalError = error{
     OutOfMemory,
     VariableNotFound,
@@ -85,8 +168,12 @@ pub const Evaluator = struct {
     }
 
     fn initBuiltins(self: *Evaluator) EvalError!void {
-        const puts_obj = obj.Object{ .builtin = obj.BuiltinObject{ .@"fn" = &builtinPuts } };
-        try self.env.set("puts", puts_obj);
+        try self.env.set("puts", obj.Object{ .builtin = obj.BuiltinObject{ .@"fn" = &builtinPuts } });
+        try self.env.set("len", obj.Object{ .builtin = obj.BuiltinObject{ .@"fn" = &builtinLen } });
+        try self.env.set("first", obj.Object{ .builtin = obj.BuiltinObject{ .@"fn" = &builtinFirst } });
+        try self.env.set("last", obj.Object{ .builtin = obj.BuiltinObject{ .@"fn" = &builtinLast } });
+        try self.env.set("rest", obj.Object{ .builtin = obj.BuiltinObject{ .@"fn" = &builtinRest } });
+        try self.env.set("push", obj.Object{ .builtin = obj.BuiltinObject{ .@"fn" = &builtinPush } });
     }
 
     /// Call only when heap is not an ArenaAllocator (arena free() can't handle
@@ -307,6 +394,28 @@ pub const Evaluator = struct {
             return obj.Object{ .@"error" = obj.ErrorObject{ .message = msg } };
         }
 
+        // == and != : compare integer, boolean, string, null; same type required, return boolean
+        if (std.mem.eql(u8, expr.operator, "==") or std.mem.eql(u8, expr.operator, "!=")) {
+            const eq = blk: {
+                if (left_obj == .integer and right_obj == .integer) {
+                    break :blk left_obj.integer.value == right_obj.integer.value;
+                }
+                if (left_obj == .boolean and right_obj == .boolean) {
+                    break :blk left_obj.boolean.value == right_obj.boolean.value;
+                }
+                if (left_obj == .string and right_obj == .string) {
+                    break :blk std.mem.eql(u8, left_obj.string.value, right_obj.string.value);
+                }
+                if (left_obj == .@"null" and right_obj == .@"null") {
+                    break :blk true;
+                }
+                // Different types (or incomparable) => not equal
+                break :blk false;
+            };
+            const result = if (std.mem.eql(u8, expr.operator, "==")) eq else !eq;
+            return obj.Object{ .boolean = obj.BooleanObject{ .value = result } };
+        }
+
         // Both operands must be integers for other arithmetic operations
         const left = switch (left_obj) {
             .integer => |int_obj| int_obj.value,
@@ -475,10 +584,9 @@ pub const Evaluator = struct {
                 return obj.Object{ .@"error" = obj.ErrorObject{ .message = msg } };
             }
             const hash_obj = left.hash;
-            for (hash_obj.pairs) |pair| {
-                if (obj.hashKeyEql(pair.key, index_val)) {
-                    return pair.value;
-                }
+            const canonical = try obj.hashKeyToCanonicalString(self.heap, index_val);
+            if (hash_obj.store.get(canonical)) |value| {
+                return value;
             }
             return obj.Object{ .null = obj.NullObject{ .value = {} } };
         }
@@ -488,8 +596,7 @@ pub const Evaluator = struct {
     }
 
     fn evaluateHashLiteral(self: *Evaluator, expr: ast.HashLiteral) EvalError!obj.Object {
-        var list = std.ArrayList(obj.HashPair){};
-        defer list.deinit(self.heap);
+        var map = std.StringHashMap(obj.Object).init(self.heap);
 
         for (expr.pairs.items) |pair| {
             const key = try self.evaluateExpression(pair.key);
@@ -500,10 +607,10 @@ pub const Evaluator = struct {
             }
             const value = try self.evaluateExpression(pair.value);
             if (value == .@"error") return value;
-            try list.append(self.heap, .{ .key = key, .value = value });
+            const canonical = try obj.hashKeyToCanonicalString(self.heap, key);
+            try map.put(canonical, value);
         }
 
-        const slice = try self.heap.dupe(obj.HashPair, list.items);
-        return obj.Object{ .hash = obj.HashObject{ .pairs = slice } };
+        return obj.Object{ .hash = obj.HashObject{ .store = map } };
     }
 };

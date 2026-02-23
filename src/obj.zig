@@ -142,28 +142,57 @@ pub const ArrayObject = struct {
     }
 };
 
-/// Hash: pairs of (key, value). Keys must be hashable (integer, string, boolean). Arena-allocated slice.
-pub const HashPair = struct {
-    key: Object,
-    value: Object,
-};
-
+/// Hash: O(1) lookup via StringHashMap. Keys stored as canonical strings (see hashKeyToCanonicalString).
 pub const HashObject = struct {
-    pairs: []const HashPair,
+    store: std.StringHashMap(Object),
 
     pub fn inspect(self: *const HashObject, writer: *std.Io.Writer) ObjectError!void {
         try writer.writeByte('{');
-        for (self.pairs, 0..) |pair, i| {
-            try pair.key.inspect(writer);
+        var it = self.store.iterator();
+        var first = true;
+        while (it.next()) |entry| {
+            if (!first) try writer.writeAll(", ");
+            first = false;
+            try writeHashKeyLiteral(writer, entry.key_ptr.*);
             try writer.writeAll(": ");
-            try pair.value.inspect(writer);
-            if (i < self.pairs.len - 1) {
-                try writer.writeAll(", ");
-            }
+            try entry.value_ptr.*.inspect(writer);
         }
         try writer.writeByte('}');
     }
 };
+
+/// Canonical key format: "i:{d}" | "b:true"|"b:false" | "s:{len}:{bytes}". Caller owns returned slice (arena).
+pub fn hashKeyToCanonicalString(allocator: std.mem.Allocator, key: Object) std.mem.Allocator.Error![]const u8 {
+    return switch (key) {
+        .integer => |int| std.fmt.allocPrint(allocator, "i:{d}", .{int.value}),
+        .boolean => |b| std.fmt.allocPrint(allocator, "b:{}", .{b.value}),
+        .string => |s| std.fmt.allocPrint(allocator, "s:{d}:{s}", .{ s.value.len, s.value }),
+        else => unreachable,
+    };
+}
+
+/// Writes the hash key in source form (e.g. canonical "i:42" -> "42"). Used by HashObject.inspect.
+pub fn writeHashKeyLiteral(writer: *std.Io.Writer, canonical_key: []const u8) ObjectError!void {
+    if (std.mem.startsWith(u8, canonical_key, "i:")) {
+        const n = std.fmt.parseInt(i64, canonical_key[2..], 10) catch return;
+        try writer.print("{d}", .{n});
+        return;
+    }
+    if (std.mem.startsWith(u8, canonical_key, "b:")) {
+        try writer.writeAll(canonical_key[2..]);
+        return;
+    }
+    if (std.mem.startsWith(u8, canonical_key, "s:")) {
+        var rest = canonical_key[2..];
+        const colon = std.mem.indexOfScalar(u8, rest, ':') orelse return;
+        const len = std.fmt.parseInt(usize, rest[0..colon], 10) catch return;
+        rest = rest[colon + 1 ..];
+        if (rest.len >= len) {
+            try writer.writeAll(rest[0..len]);
+        }
+        return;
+    }
+}
 
 /// Returns true if the object is a valid hash key type (integer, string, boolean).
 pub fn isHashKey(obj: Object) bool {
