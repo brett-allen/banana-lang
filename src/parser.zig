@@ -183,7 +183,7 @@ pub const Parser = struct {
         const prefixFn = self.prefixFns() orelse return error.UnknownPrefixToken;
         var left = try prefixFn(self);
 
-        while (!(self.peekTokenIs(.semicolon) or self.curTokenIs(.eof)) and p < @intFromEnum(self.peekPrecedence())) {
+        while (!(self.peekTokenIs(.semicolon) or self.peekTokenIs(.colon) or self.curTokenIs(.eof)) and p < @intFromEnum(self.peekPrecedence())) {
             const infixFn = self.infixFns() orelse break;
             self.nextToken();
 
@@ -326,6 +326,7 @@ pub const Parser = struct {
             .true, .false => parseBooleanLiteral,
             .lparen => parseGroupedExpression,
             .lbrack => parseArrayLiteral,
+            .lbrace => parseHashLiteral,
             .function => parseFunctionLiteral,
             .@"if" => parseIfExpression,
             else => null,
@@ -412,6 +413,35 @@ pub const Parser = struct {
             .array_literal = ast.ArrayLiteral{
                 .token = token,
                 .elements = elements,
+            },
+        };
+    }
+
+    /// Hash literal: { key : value , ... }. Simple loop like the book — parse key, expect ':', parse value, then ',' or '}'.
+    fn parseHashLiteral(self: *Parser) !ast.Expression {
+        const token = self.current_token; // '{'
+        var pairs = std.ArrayList(ast.HashPair){};
+
+        self.nextToken(); // consume '{'
+
+        while (!self.peekTokenIs(.rbrace) and !self.peekTokenIs(.eof)) {
+            const key = try self.parseExpression(Precedence.lowest);
+            if (!self.expectPeek(.colon)) return ParserError.MissingColon;
+            self.nextToken(); // consume ':' so we're on the value
+            const value = try self.parseExpression(Precedence.lowest);
+            try pairs.append(self.heap, .{ .key = key, .value = value });
+            if (!self.peekTokenIs(.rbrace)) {
+                if (!self.expectPeek(.comma)) return ParserError.MissingRightBrace;
+                self.nextToken(); // consume ',' so next iteration we're on the key
+            }
+        }
+
+        if (!self.expectPeek(.rbrace)) return ParserError.MissingRightBrace;
+
+        return ast.Expression{
+            .hash_literal = ast.HashLiteral{
+                .token = token,
+                .pairs = pairs,
             },
         };
     }

@@ -126,6 +126,33 @@ pub const IndexExpression = struct {
     }
 };
 
+pub const HashPair = struct {
+    key: Expression,
+    value: Expression,
+};
+
+pub const HashLiteral = struct {
+    token: tok.Token,
+    pairs: std.ArrayList(HashPair),
+
+    pub fn tokenLiteral(self: *const HashLiteral) []const u8 {
+        return self.token.literal;
+    }
+
+    pub fn string(self: *const HashLiteral, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+        try writer.writeByte('{');
+        for (self.pairs.items, 0..) |pair, i| {
+            try pair.key.string(writer);
+            try writer.writeAll(": ");
+            try pair.value.string(writer);
+            if (i < self.pairs.items.len - 1) {
+                try writer.writeAll(", ");
+            }
+        }
+        try writer.writeByte('}');
+    }
+};
+
 pub const Expression = union(enum) {
     identifier: Identifier,
     integer_literal: IntegerLiteral,
@@ -138,6 +165,7 @@ pub const Expression = union(enum) {
     if_expression: IfExpression,
     array_literal: ArrayLiteral,
     index_expression: IndexExpression,
+    hash_literal: HashLiteral,
 
     pub fn string(self: *const Expression, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         switch (self.*) {

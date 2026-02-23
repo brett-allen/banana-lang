@@ -40,6 +40,7 @@ pub const Lexer = struct {
                 }
             },
             ';' => tok = token.Token.init(token.TokenType.semicolon, ";", line),
+            ':' => tok = token.Token.init(token.TokenType.colon, ":", line),
             ',' => tok = token.Token.init(token.TokenType.comma, ",", line),
             '(' => tok = token.Token.init(token.TokenType.lparen, "(", line),
             ')' => tok = token.Token.init(token.TokenType.rparen, ")", line),

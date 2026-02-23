@@ -181,6 +181,10 @@ pub const Evaluator = struct {
             },
             .array_literal => |arr_lit| return try self.evaluateArrayLiteral(arr_lit),
             .index_expression => |idx_expr| return try self.evaluateIndexExpression(idx_expr),
+            .hash_literal => |_| {
+                const msg = try self.heap.dupe(u8, "hash literals not yet implemented in evaluator");
+                return obj.Object{ .@"error" = obj.ErrorObject{ .message = msg } };
+            },
         };
     }
 

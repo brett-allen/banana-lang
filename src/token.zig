@@ -21,6 +21,7 @@ pub const TokenType = enum {
     // Delimiters
     comma,
     semicolon,
+    colon,
     lparen,
     rparen,
     lbrace,
