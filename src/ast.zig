@@ -40,6 +40,7 @@ pub const Program = struct {
 
 pub const Statement = union(enum) {
     let_statement: LetStatement,
+    return_statement: ReturnStatement,
     expression_statement: ExpressionStatement,
     block_statement: BlockStatement,
 
@@ -68,6 +69,22 @@ pub const LetStatement = struct {
         try writer.writeAll(" = ");
         try self.value.string(writer);
 
+        try writer.writeByte(';');
+    }
+};
+
+pub const ReturnStatement = struct {
+    token: tok.Token,
+    return_value: Expression,
+
+    pub fn tokenLiteral(self: *const ReturnStatement) []const u8 {
+        return self.token.literal;
+    }
+
+    pub fn string(self: *const ReturnStatement, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+        try writer.writeAll(self.tokenLiteral());
+        try writer.writeByte(' ');
+        try self.return_value.string(writer);
         try writer.writeByte(';');
     }
 };

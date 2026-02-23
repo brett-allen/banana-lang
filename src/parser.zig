@@ -47,7 +47,7 @@ const Precedence = enum(u8) {
 
 fn getPrecedence(token_type: tok.TokenType) Precedence {
     return switch (token_type) {
-        .assign => Precedence.lowest, // Assignment has lowest precedence
+        .assign => Precedence.lowest, // No reassignment; only let binds (book's Monkey)
         .eq, .not_eq => Precedence.equals,
         .lt, .gt => Precedence.lessgreater,
         .plus, .minus => Precedence.sum,
@@ -99,12 +99,28 @@ pub const Parser = struct {
             .let => ast.Statement{
                 .let_statement = try self.parseLetStatement(),
             },
+            .@"return" => ast.Statement{
+                .return_statement = try self.parseReturnStatement(),
+            },
             .lbrace => ast.Statement{
                 .block_statement = try self.parseBlockStatement(),
             },
             else => ast.Statement{
                 .expression_statement = try self.parseExpressionStatement(),
             },
+        };
+    }
+
+    fn parseReturnStatement(self: *Parser) !ast.ReturnStatement {
+        const token = self.current_token;
+        self.nextToken();
+        const return_value = try self.parseExpression(Precedence.lowest);
+        if (self.peekTokenIs(.semicolon)) {
+            self.nextToken();
+        }
+        return ast.ReturnStatement{
+            .token = token,
+            .return_value = return_value,
         };
     }
 

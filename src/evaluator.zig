@@ -123,6 +123,13 @@ pub const Evaluator = struct {
                 const result = try self.evaluateLetStatement(let_stmt);
                 return result;
             },
+            .return_statement => |ret_stmt| {
+                const value = try self.evaluateExpression(ret_stmt.return_value);
+                if (value == .@"error") return value;
+                const value_ptr = try self.heap.create(obj.Object);
+                value_ptr.* = value;
+                return obj.Object{ .@"return" = obj.ReturnValueObject{ .value = value_ptr } };
+            },
             .expression_statement => |exp_stmt| {
                 return try self.evaluateExpression(exp_stmt.expression);
             },
@@ -181,6 +188,8 @@ pub const Evaluator = struct {
             result = try self.evaluateStatement(stmt);
             if (result) |res| {
                 if (res == .@"error") return res;
+                // Bubble up return value so callFunction can unwrap it
+                if (res == .@"return") return res.@"return".value.*;
             }
         }
         return result;
@@ -417,6 +426,10 @@ pub const Evaluator = struct {
         defer self.env = old_env;
 
         const result = try self.evaluateBlockStatement(func_obj.body.*);
-        return result orelse obj.Object{ .null = obj.NullObject{ .value = {} } };
+        if (result) |res| {
+            if (res == .@"return") return res.@"return".value.*;
+            return res;
+        }
+        return obj.Object{ .null = obj.NullObject{ .value = {} } };
     }
 };

@@ -23,6 +23,7 @@ pub const Object = union(enum) {
     integer: IntegerObject,
     boolean: BooleanObject,
     @"null": NullObject,
+    @"return": ReturnValueObject,
     @"error": ErrorObject,
     builtin: BuiltinObject,
     string: StringObject,
@@ -87,6 +88,15 @@ pub const NullObject = struct {
 
     pub fn inspect(_: *const NullObject, writer: *std.Io.Writer) ObjectError!void {
         return try writer.writeAll("null");
+    }
+};
+
+pub const ReturnValueObject = struct {
+    /// Pointer to avoid Object union depending on itself (ReturnValueObject -> Object -> ReturnValueObject).
+    value: *const Object,
+
+    pub fn inspect(self: *const ReturnValueObject, writer: *std.Io.Writer) ObjectError!void {
+        return self.value.inspect(writer);
     }
 };
 
