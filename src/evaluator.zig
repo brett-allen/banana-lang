@@ -181,10 +181,7 @@ pub const Evaluator = struct {
             },
             .array_literal => |arr_lit| return try self.evaluateArrayLiteral(arr_lit),
             .index_expression => |idx_expr| return try self.evaluateIndexExpression(idx_expr),
-            .hash_literal => |_| {
-                const msg = try self.heap.dupe(u8, "hash literals not yet implemented in evaluator");
-                return obj.Object{ .@"error" = obj.ErrorObject{ .message = msg } };
-            },
+            .hash_literal => |hash_lit| return try self.evaluateHashLiteral(hash_lit),
         };
     }
 
@@ -459,20 +456,54 @@ pub const Evaluator = struct {
         const index_val = try self.evaluateExpression(expr.index.*);
         if (index_val == .@"error") return index_val;
 
-        if (left != .array) {
-            const msg = try std.fmt.allocPrint(self.heap, "index operator not supported: {s}", .{left._type()});
-            return obj.Object{ .@"error" = obj.ErrorObject{ .message = msg } };
-        }
-        if (index_val != .integer) {
-            const msg = try std.fmt.allocPrint(self.heap, "index must be integer, got {s}", .{index_val._type()});
-            return obj.Object{ .@"error" = obj.ErrorObject{ .message = msg } };
+        if (left == .array) {
+            if (index_val != .integer) {
+                const msg = try std.fmt.allocPrint(self.heap, "array index must be integer, got {s}", .{index_val._type()});
+                return obj.Object{ .@"error" = obj.ErrorObject{ .message = msg } };
+            }
+            const arr = left.array;
+            const i = index_val.integer.value;
+            if (i < 0 or @as(u64, @intCast(i)) >= arr.elements.len) {
+                return obj.Object{ .null = obj.NullObject{ .value = {} } };
+            }
+            return arr.elements[@as(usize, @intCast(i))];
         }
 
-        const arr = left.array;
-        const i = index_val.integer.value;
-        if (i < 0 or @as(u64, @intCast(i)) >= arr.elements.len) {
+        if (left == .hash) {
+            if (!obj.isHashKey(index_val)) {
+                const msg = try std.fmt.allocPrint(self.heap, "hash key must be integer, string or boolean, got {s}", .{index_val._type()});
+                return obj.Object{ .@"error" = obj.ErrorObject{ .message = msg } };
+            }
+            const hash_obj = left.hash;
+            for (hash_obj.pairs) |pair| {
+                if (obj.hashKeyEql(pair.key, index_val)) {
+                    return pair.value;
+                }
+            }
             return obj.Object{ .null = obj.NullObject{ .value = {} } };
         }
-        return arr.elements[@as(usize, @intCast(i))];
+
+        const msg = try std.fmt.allocPrint(self.heap, "index operator not supported: {s}", .{left._type()});
+        return obj.Object{ .@"error" = obj.ErrorObject{ .message = msg } };
+    }
+
+    fn evaluateHashLiteral(self: *Evaluator, expr: ast.HashLiteral) EvalError!obj.Object {
+        var list = std.ArrayList(obj.HashPair){};
+        defer list.deinit(self.heap);
+
+        for (expr.pairs.items) |pair| {
+            const key = try self.evaluateExpression(pair.key);
+            if (key == .@"error") return key;
+            if (!obj.isHashKey(key)) {
+                const msg = try std.fmt.allocPrint(self.heap, "hash key must be integer, string or boolean, got {s}", .{key._type()});
+                return obj.Object{ .@"error" = obj.ErrorObject{ .message = msg } };
+            }
+            const value = try self.evaluateExpression(pair.value);
+            if (value == .@"error") return value;
+            try list.append(self.heap, .{ .key = key, .value = value });
+        }
+
+        const slice = try self.heap.dupe(obj.HashPair, list.items);
+        return obj.Object{ .hash = obj.HashObject{ .pairs = slice } };
     }
 };

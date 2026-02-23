@@ -12,6 +12,8 @@ const ParserError = error{
     MissingRightBracket,
     MissingRightParenthesis,
     MissingColon,
+    EmptyHashLiteral,
+    EmptyArrayLiteral,
     UnknownPrefixToken,
     UnknownOperatorToken,
 } || std.mem.Allocator.Error || std.fmt.ParseIntError;
@@ -27,6 +29,8 @@ pub fn parseErrorMessage(err: ParserError) []const u8 {
         ParserError.MissingRightBracket => "expected ']'",
         ParserError.MissingRightParenthesis => "expected ')'",
         ParserError.MissingColon => "expected ':'",
+        ParserError.EmptyHashLiteral => "hash literal must have at least one pair",
+        ParserError.EmptyArrayLiteral => "array literal must have at least one element",
         ParserError.UnknownPrefixToken => "unexpected token (invalid expression)",
         ParserError.UnknownOperatorToken => "unexpected operator",
         else => "parse error",
@@ -409,6 +413,7 @@ pub const Parser = struct {
     fn parseArrayLiteral(self: *Parser) !ast.Expression {
         const token = self.current_token;
         const elements = try self.parseExpressionList(.rbrack);
+        if (elements.items.len == 0) return ParserError.EmptyArrayLiteral;
         return ast.Expression{
             .array_literal = ast.ArrayLiteral{
                 .token = token,
@@ -423,6 +428,9 @@ pub const Parser = struct {
         var pairs = std.ArrayList(ast.HashPair){};
 
         self.nextToken(); // consume '{'
+        if (self.curTokenIs(.rbrace) or self.curTokenIs(.eof)) {
+            return ParserError.EmptyHashLiteral;
+        }
 
         while (!self.peekTokenIs(.rbrace) and !self.peekTokenIs(.eof)) {
             const key = try self.parseExpression(Precedence.lowest);

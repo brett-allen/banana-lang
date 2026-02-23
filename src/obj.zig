@@ -29,6 +29,7 @@ pub const Object = union(enum) {
     string: StringObject,
     function: FunctionObject,
     array: ArrayObject,
+    hash: HashObject,
 
     pub fn _type(self: Object) ObjectType {
         return switch (self) {
@@ -41,6 +42,7 @@ pub const Object = union(enum) {
             .string => STRING_OBJ,
             .builtin => BUILTIN_OBJ,
             .array => ARRAY_OBJ,
+            .hash => HASH_OBJ,
         };
     }
 
@@ -139,6 +141,58 @@ pub const ArrayObject = struct {
         try writer.writeByte(']');
     }
 };
+
+/// Hash: pairs of (key, value). Keys must be hashable (integer, string, boolean). Arena-allocated slice.
+pub const HashPair = struct {
+    key: Object,
+    value: Object,
+};
+
+pub const HashObject = struct {
+    pairs: []const HashPair,
+
+    pub fn inspect(self: *const HashObject, writer: *std.Io.Writer) ObjectError!void {
+        try writer.writeByte('{');
+        for (self.pairs, 0..) |pair, i| {
+            try pair.key.inspect(writer);
+            try writer.writeAll(": ");
+            try pair.value.inspect(writer);
+            if (i < self.pairs.len - 1) {
+                try writer.writeAll(", ");
+            }
+        }
+        try writer.writeByte('}');
+    }
+};
+
+/// Returns true if the object is a valid hash key type (integer, string, boolean).
+pub fn isHashKey(obj: Object) bool {
+    return switch (obj) {
+        .integer, .string, .boolean => true,
+        else => false,
+    };
+}
+
+/// Equality for hash keys (same type and value).
+pub fn hashKeyEql(a: Object, b: Object) bool {
+    if (a != .integer and a != .string and a != .boolean) return false;
+    if (b != .integer and b != .string and b != .boolean) return false;
+    return switch (a) {
+        .integer => |av| switch (b) {
+            .integer => |bv| av.value == bv.value,
+            else => false,
+        },
+        .boolean => |av| switch (b) {
+            .boolean => |bv| av.value == bv.value,
+            else => false,
+        },
+        .string => |av| switch (b) {
+            .string => |bv| std.mem.eql(u8, av.value, bv.value),
+            else => false,
+        },
+        else => false,
+    };
+}
 
 // Environment is defined in evaluator.zig - we'll use a pointer type
 pub const FunctionObject = struct {
