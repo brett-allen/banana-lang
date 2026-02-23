@@ -29,7 +29,12 @@ pub fn main() !void {
 
     var p = parser.Parser.init(heap, lexer);
     const program = p.parseProgram() catch |err| {
-        std.debug.print("parse error: {s}\n", .{parser.parseErrorMessage(err)});
+        const line = p.getCurrentLine();
+        if (line > 0) {
+            std.debug.print("parse error at line {d}: {s}\n", .{ line, parser.parseErrorMessage(err) });
+        } else {
+            std.debug.print("parse error: {s}\n", .{parser.parseErrorMessage(err)});
+        }
         std.process.exit(1);
     };
 

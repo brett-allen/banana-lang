@@ -28,6 +28,7 @@ pub const Object = union(enum) {
     builtin: BuiltinObject,
     string: StringObject,
     function: FunctionObject,
+    array: ArrayObject,
 
     pub fn _type(self: Object) ObjectType {
         return switch (self) {
@@ -40,7 +41,6 @@ pub const Object = union(enum) {
             .string => STRING_OBJ,
             .builtin => BUILTIN_OBJ,
             .array => ARRAY_OBJ,
-            .hash => HASH_OBJ,
         };
     }
 
@@ -121,6 +121,22 @@ pub const StringObject = struct {
 
     pub fn inspect(self: *const StringObject, writer: *std.Io.Writer) ObjectError!void {
         return try writer.writeAll(self.value);
+    }
+};
+
+/// Array elements stored as an arena-allocated slice (no separate allocator to store).
+pub const ArrayObject = struct {
+    elements: []const Object,
+
+    pub fn inspect(self: *const ArrayObject, writer: *std.Io.Writer) ObjectError!void {
+        try writer.writeByte('[');
+        for (self.elements, 0..) |elem, i| {
+            try elem.inspect(writer);
+            if (i < self.elements.len - 1) {
+                try writer.writeAll(", ");
+            }
+        }
+        try writer.writeByte(']');
     }
 };
 

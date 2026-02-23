@@ -8,6 +8,8 @@ pub const Lexer = struct {
     position: usize,
     read_position: usize,
     ch: u8,
+    line: u32,
+    column: u32,
 
     pub fn init(input: []const u8) Lexer {
         var l = Lexer{
@@ -15,6 +17,8 @@ pub const Lexer = struct {
             .position = 0,
             .read_position = 0,
             .ch = 0,
+            .line = 1,
+            .column = 1,
         };
         l.readChar();
         return l;
@@ -22,56 +26,57 @@ pub const Lexer = struct {
 
     pub fn nextToken(self: *Lexer) token.Token {
         self.skipWhitespace();
-        var tok = token.Token.init(token.TokenType.illegal, "");
+        const line = self.line;
+        var tok = token.Token.init(token.TokenType.illegal, "", line);
 
         switch (self.ch) {
             '=' => {
                 if (self.peekChar() == '=') {
                     const start = self.position;
                     self.readChar(); // consume the second '='
-                    tok = token.Token.init(token.TokenType.eq, self.input[start..self.read_position]);
+                    tok = token.Token.init(token.TokenType.eq, self.input[start..self.read_position], line);
                 } else {
-                    tok = token.Token.init(token.TokenType.assign, "=");
+                    tok = token.Token.init(token.TokenType.assign, "=", line);
                 }
             },
-            ';' => tok = token.Token.init(token.TokenType.semicolon, ";"),
-            ',' => tok = token.Token.init(token.TokenType.comma, ","),
-            '(' => tok = token.Token.init(token.TokenType.lparen, "("),
-            ')' => tok = token.Token.init(token.TokenType.rparen, ")"),
-            '{' => tok = token.Token.init(token.TokenType.lbrace, "{"),
-            '}' => tok = token.Token.init(token.TokenType.rbrace, "}"),
-            '[' => tok = token.Token.init(token.TokenType.lbrack, "["),
-            ']' => tok = token.Token.init(token.TokenType.rbrack, "]"),
-            '+' => tok = token.Token.init(token.TokenType.plus, "+"),
-            '-' => tok = token.Token.init(token.TokenType.minus, "-"),
-            '*' => tok = token.Token.init(token.TokenType.asterisk, "*"),
-            '/' => tok = token.Token.init(token.TokenType.slash, "/"),
-            '<' => tok = token.Token.init(token.TokenType.lt, "<"),
-            '>' => tok = token.Token.init(token.TokenType.gt, ">"),
+            ';' => tok = token.Token.init(token.TokenType.semicolon, ";", line),
+            ',' => tok = token.Token.init(token.TokenType.comma, ",", line),
+            '(' => tok = token.Token.init(token.TokenType.lparen, "(", line),
+            ')' => tok = token.Token.init(token.TokenType.rparen, ")", line),
+            '{' => tok = token.Token.init(token.TokenType.lbrace, "{", line),
+            '}' => tok = token.Token.init(token.TokenType.rbrace, "}", line),
+            '[' => tok = token.Token.init(token.TokenType.lbrack, "[", line),
+            ']' => tok = token.Token.init(token.TokenType.rbrack, "]", line),
+            '+' => tok = token.Token.init(token.TokenType.plus, "+", line),
+            '-' => tok = token.Token.init(token.TokenType.minus, "-", line),
+            '*' => tok = token.Token.init(token.TokenType.asterisk, "*", line),
+            '/' => tok = token.Token.init(token.TokenType.slash, "/", line),
+            '<' => tok = token.Token.init(token.TokenType.lt, "<", line),
+            '>' => tok = token.Token.init(token.TokenType.gt, ">", line),
             '!' => {
                 if (self.peekChar() == '=') {
                     const start = self.position;
                     self.readChar(); // consume the '='
-                    tok = token.Token.init(token.TokenType.not_eq, self.input[start..self.read_position]);
+                    tok = token.Token.init(token.TokenType.not_eq, self.input[start..self.read_position], line);
                 } else {
-                    tok = token.Token.init(token.TokenType.bang, "!");
+                    tok = token.Token.init(token.TokenType.bang, "!", line);
                 }
             },
             '"' => {
-                tok = T(.string, self.readString());
+                tok = token.Token.init(token.TokenType.string, self.readString(), line);
                 return tok;
             },
-            0 => tok = token.Token.init(token.TokenType.eof, ""),
+            0 => tok = token.Token.init(token.TokenType.eof, "", line),
             else => {
                 if (self.isLetter()) {
                     const literal = self.readIdentifier();
-                    tok = T(token.lookupIdentifier(literal), literal);
+                    tok = token.Token.init(token.lookupIdentifier(literal), literal, line);
                     return tok;
                 } else if (self.isDigit()) {
-                    tok = T(.int, self.readNumber());
+                    tok = token.Token.init(token.TokenType.int, self.readNumber(), line);
                     return tok;
                 } else {
-                    tok = T(.illegal, self.input[self.position .. self.position + 1]);
+                    tok = token.Token.init(token.TokenType.illegal, self.input[self.position .. self.position + 1], line);
                 }
             },
         }
@@ -89,6 +94,7 @@ pub const Lexer = struct {
     }
 
     fn readChar(self: *Lexer) void {
+        const old_pos = self.position;
         if (self.read_position >= self.input.len) {
             self.ch = 0;
         } else {
@@ -96,6 +102,12 @@ pub const Lexer = struct {
         }
         self.position = self.read_position;
         self.read_position += 1;
+        if (old_pos < self.input.len and self.input[old_pos] == '\n') {
+            self.line += 1;
+            self.column = 1;
+        } else {
+            self.column += 1;
+        }
     }
 
     fn readNumber(self: *Lexer) []const u8 {

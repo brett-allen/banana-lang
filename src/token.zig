@@ -41,11 +41,13 @@ pub const TokenType = enum {
 pub const Token = struct {
     type: TokenType,
     literal: []const u8,
+    line: u32 = 0,
 
-    pub fn init(t: TokenType, lit: []const u8) Token {
+    pub fn init(t: TokenType, lit: []const u8, line_num: u32) Token {
         return Token{
             .type = t,
             .literal = lit,
+            .line = line_num,
         };
     }
 };

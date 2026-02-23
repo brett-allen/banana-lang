@@ -77,6 +77,11 @@ pub const Parser = struct {
         return p;
     }
 
+    /// Line number of current token (for error messages). 0 if unknown.
+    pub fn getCurrentLine(self: *const Parser) u32 {
+        return self.current_token.line;
+    }
+
     pub fn parseProgram(self: *Parser) !ast.Program {
         var program = ast.Program{ .statements = std.ArrayList(ast.Statement){} };
         while (self.current_token.type != .eof) {

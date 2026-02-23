@@ -179,14 +179,8 @@ pub const Evaluator = struct {
             .if_expression => |if_expr| {
                 return try self.evaluateIfExpression(if_expr);
             },
-            .array_literal => |_| {
-                const msg = try self.heap.dupe(u8, "array literals not yet implemented in evaluator");
-                return obj.Object{ .@"error" = obj.ErrorObject{ .message = msg } };
-            },
-            .index_expression => |_| {
-                const msg = try self.heap.dupe(u8, "index expressions not yet implemented in evaluator");
-                return obj.Object{ .@"error" = obj.ErrorObject{ .message = msg } };
-            },
+            .array_literal => |arr_lit| return try self.evaluateArrayLiteral(arr_lit),
+            .index_expression => |idx_expr| return try self.evaluateIndexExpression(idx_expr),
         };
     }
 
@@ -439,5 +433,42 @@ pub const Evaluator = struct {
             return res;
         }
         return obj.Object{ .null = obj.NullObject{ .value = {} } };
+    }
+
+    fn evaluateArrayLiteral(self: *Evaluator, expr: ast.ArrayLiteral) EvalError!obj.Object {
+        var list = std.ArrayList(obj.Object){};
+        defer list.deinit(self.heap);
+
+        for (expr.elements.items) |elem| {
+            const evaluated = try self.evaluateExpression(elem);
+            if (evaluated == .@"error") return evaluated;
+            try list.append(self.heap, evaluated);
+        }
+
+        const slice = try self.heap.dupe(obj.Object, list.items);
+        return obj.Object{ .array = obj.ArrayObject{ .elements = slice } };
+    }
+
+    fn evaluateIndexExpression(self: *Evaluator, expr: ast.IndexExpression) EvalError!obj.Object {
+        const left = try self.evaluateExpression(expr.left.*);
+        if (left == .@"error") return left;
+        const index_val = try self.evaluateExpression(expr.index.*);
+        if (index_val == .@"error") return index_val;
+
+        if (left != .array) {
+            const msg = try std.fmt.allocPrint(self.heap, "index operator not supported: {s}", .{left._type()});
+            return obj.Object{ .@"error" = obj.ErrorObject{ .message = msg } };
+        }
+        if (index_val != .integer) {
+            const msg = try std.fmt.allocPrint(self.heap, "index must be integer, got {s}", .{index_val._type()});
+            return obj.Object{ .@"error" = obj.ErrorObject{ .message = msg } };
+        }
+
+        const arr = left.array;
+        const i = index_val.integer.value;
+        if (i < 0 or @as(u64, @intCast(i)) >= arr.elements.len) {
+            return obj.Object{ .null = obj.NullObject{ .value = {} } };
+        }
+        return arr.elements[@as(usize, @intCast(i))];
     }
 };
