@@ -12,7 +12,6 @@ const ParserError = error{
     MissingRightBracket,
     MissingRightParenthesis,
     MissingColon,
-    EmptyHashLiteral,
     UnknownPrefixToken,
     UnknownOperatorToken,
 } || std.mem.Allocator.Error || std.fmt.ParseIntError;
@@ -28,7 +27,6 @@ pub fn parseErrorMessage(err: ParserError) []const u8 {
         ParserError.MissingRightBracket => "expected ']'",
         ParserError.MissingRightParenthesis => "expected ')'",
         ParserError.MissingColon => "expected ':'",
-        ParserError.EmptyHashLiteral => "hash literal must have at least one pair",
         ParserError.UnknownPrefixToken => "unexpected token (invalid expression)",
         ParserError.UnknownOperatorToken => "unexpected operator",
         else => "parse error",
@@ -337,7 +335,7 @@ pub const Parser = struct {
 
     fn infixFns(self: *Parser) ?*const fn (self: *Parser, left: ast.Expression) ParserError!ast.Expression {
         return switch (self.peek_token.type) {
-            .assign, .plus, .minus, .slash, .asterisk, .lt, .gt, .eq, .not_eq => parseInfixExpression,
+            .plus, .minus, .slash, .asterisk, .lt, .gt, .eq, .not_eq => parseInfixExpression,
             .lparen => parseCallExpression,
             .lbrack => parseIndexExpression,
             else => null,
@@ -419,17 +417,13 @@ pub const Parser = struct {
         };
     }
 
-    /// Hash literal: { key : value , ... }. Simple loop like the book — parse key, expect ':', parse value, then ',' or '}'.
+    /// Hash literal: { key : value , ... }. Book style: loop while peek != '}', nextToken then parse key/value.
     fn parseHashLiteral(self: *Parser) !ast.Expression {
         const token = self.current_token; // '{'
         var pairs = std.ArrayList(ast.HashPair){};
 
-        self.nextToken(); // consume '{'
-        if (self.curTokenIs(.rbrace) or self.curTokenIs(.eof)) {
-            return ParserError.EmptyHashLiteral;
-        }
-
         while (!self.peekTokenIs(.rbrace) and !self.peekTokenIs(.eof)) {
+            self.nextToken(); // advance to key
             const key = try self.parseExpression(Precedence.lowest);
             if (!self.expectPeek(.colon)) return ParserError.MissingColon;
             self.nextToken(); // consume ':' so we're on the value
@@ -437,7 +431,6 @@ pub const Parser = struct {
             try pairs.append(self.heap, .{ .key = key, .value = value });
             if (!self.peekTokenIs(.rbrace)) {
                 if (!self.expectPeek(.comma)) return ParserError.MissingRightBrace;
-                self.nextToken(); // consume ',' so next iteration we're on the key
             }
         }
 

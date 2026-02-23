@@ -68,7 +68,10 @@ fn builtinRest(allocator: std.mem.Allocator, args: []const obj.Object) anyerror!
     }
     return switch (args[0]) {
         .array => |a| blk: {
-            if (a.elements.len <= 1) {
+            if (a.elements.len == 0) {
+                break :blk obj.Object{ .null = obj.NullObject{ .value = {} } };
+            }
+            if (a.elements.len == 1) {
                 break :blk obj.Object{ .array = obj.ArrayObject{ .elements = &[_]obj.Object{} } };
             }
             const tail = try allocator.dupe(obj.Object, a.elements[1..]);
@@ -357,11 +360,6 @@ pub const Evaluator = struct {
     }
 
     fn evaluateInfixExpression(self: *Evaluator, expr: ast.InfixExpression) EvalError!obj.Object {
-        // Handle assignment operator
-        if (std.mem.eql(u8, expr.operator, "=")) {
-            return try self.evaluateAssignment(expr);
-        }
-
         const left_obj = try self.evaluateExpression(expr.left.*);
         // Check for error objects
         if (left_obj == .@"error") {
@@ -394,7 +392,7 @@ pub const Evaluator = struct {
             return obj.Object{ .@"error" = obj.ErrorObject{ .message = msg } };
         }
 
-        // == and != : compare integer, boolean, string, null; same type required, return boolean
+        // == and != : compare integer, boolean, string, null; same type required (book: type mismatch => error)
         if (std.mem.eql(u8, expr.operator, "==") or std.mem.eql(u8, expr.operator, "!=")) {
             const eq = blk: {
                 if (left_obj == .integer and right_obj == .integer) {
@@ -409,8 +407,13 @@ pub const Evaluator = struct {
                 if (left_obj == .@"null" and right_obj == .@"null") {
                     break :blk true;
                 }
-                // Different types (or incomparable) => not equal
-                break :blk false;
+                // Different types: return error (book semantics)
+                const msg = try std.fmt.allocPrint(
+                    self.heap,
+                    "type mismatch: {s} {s} {s}",
+                    .{ left_obj._type(), expr.operator, right_obj._type() },
+                );
+                return obj.Object{ .@"error" = obj.ErrorObject{ .message = msg } };
             };
             const result = if (std.mem.eql(u8, expr.operator, "==")) eq else !eq;
             return obj.Object{ .boolean = obj.BooleanObject{ .value = result } };
@@ -434,23 +437,6 @@ pub const Evaluator = struct {
             '>' => obj.Object{ .integer = obj.IntegerObject{ .value = if (left > right) 1 else 0 } },
             else => obj.Object{ .null = obj.NullObject{ .value = {} } },
         };
-    }
-
-    fn evaluateAssignment(self: *Evaluator, expr: ast.InfixExpression) EvalError!obj.Object {
-        // Left side must be an identifier
-        const left_ident = switch (expr.left.*) {
-            .identifier => |ident| ident,
-            else => return obj.Object{ .null = obj.NullObject{ .value = {} } },
-        };
-
-        const value = try self.evaluateExpression(expr.right.*);
-        // Check for error objects
-        if (value == .@"error") {
-            return value;
-        }
-        const name = left_ident.value;
-        try self.env.set(name, value);
-        return value;
     }
 
     fn evaluateCallExpression(self: *Evaluator, expr: ast.CallExpression) EvalError!obj.Object {
