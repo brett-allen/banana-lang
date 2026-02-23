@@ -52,7 +52,7 @@ fn getPrecedence(token_type: tok.TokenType) Precedence {
         .lt, .gt => Precedence.lessgreater,
         .plus, .minus => Precedence.sum,
         .slash, .asterisk => Precedence.product,
-        .lparen => Precedence.call,
+        .lbrack, .lparen => Precedence.call,
         else => Precedence.lowest,
     };
 }
@@ -320,6 +320,7 @@ pub const Parser = struct {
             .string => parseStringLiteral,
             .true, .false => parseBooleanLiteral,
             .lparen => parseGroupedExpression,
+            .lbrack => parseArrayLiteral,
             .function => parseFunctionLiteral,
             .@"if" => parseIfExpression,
             else => null,
@@ -330,6 +331,7 @@ pub const Parser = struct {
         return switch (self.peek_token.type) {
             .assign, .plus, .minus, .slash, .asterisk, .lt, .gt, .eq, .not_eq => parseInfixExpression,
             .lparen => parseCallExpression,
+            .lbrack => parseIndexExpression,
             else => null,
         };
     }
@@ -368,7 +370,7 @@ pub const Parser = struct {
         }
 
         if (!self.expectPeek(end)) {
-            return ParserError.MissingRightParenthesis;
+            return if (end == .rbrack) ParserError.MissingRightBracket else ParserError.MissingRightParenthesis;
         }
 
         return list;
@@ -394,6 +396,37 @@ pub const Parser = struct {
                 .token = token,
                 .parameters = params,
                 .body = body,
+            },
+        };
+    }
+
+    fn parseArrayLiteral(self: *Parser) !ast.Expression {
+        const token = self.current_token;
+        const elements = try self.parseExpressionList(.rbrack);
+        return ast.Expression{
+            .array_literal = ast.ArrayLiteral{
+                .token = token,
+                .elements = elements,
+            },
+        };
+    }
+
+    fn parseIndexExpression(self: *Parser, left: ast.Expression) !ast.Expression {
+        const token = self.current_token; // '['
+        self.nextToken(); // consume '['
+        const index = try self.parseExpression(Precedence.lowest);
+        if (!self.expectPeek(.rbrack)) {
+            return ParserError.MissingRightBracket;
+        }
+        const left_ptr = try self.heap.create(ast.Expression);
+        left_ptr.* = left;
+        const index_ptr = try self.heap.create(ast.Expression);
+        index_ptr.* = index;
+        return ast.Expression{
+            .index_expression = ast.IndexExpression{
+                .token = token,
+                .left = left_ptr,
+                .index = index_ptr,
             },
         };
     }

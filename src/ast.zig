@@ -89,6 +89,43 @@ pub const ReturnStatement = struct {
     }
 };
 
+pub const ArrayLiteral = struct {
+    token: tok.Token,
+    elements: std.ArrayList(Expression),
+
+    pub fn tokenLiteral(self: *const ArrayLiteral) []const u8 {
+        return self.token.literal;
+    }
+
+    pub fn string(self: *const ArrayLiteral, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+        try writer.writeByte('[');
+        for (self.elements.items, 0..) |elem, i| {
+            try elem.string(writer);
+            if (i < self.elements.items.len - 1) {
+                try writer.writeAll(", ");
+            }
+        }
+        try writer.writeByte(']');
+    }
+};
+
+pub const IndexExpression = struct {
+    token: tok.Token,
+    left: *Expression,
+    index: *Expression,
+
+    pub fn tokenLiteral(self: *const IndexExpression) []const u8 {
+        return self.token.literal;
+    }
+
+    pub fn string(self: *const IndexExpression, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+        try self.left.string(writer);
+        try writer.writeByte('[');
+        try self.index.string(writer);
+        try writer.writeByte(']');
+    }
+};
+
 pub const Expression = union(enum) {
     identifier: Identifier,
     integer_literal: IntegerLiteral,
@@ -99,6 +136,8 @@ pub const Expression = union(enum) {
     call_expression: CallExpression,
     function_literal: FunctionLiteral,
     if_expression: IfExpression,
+    array_literal: ArrayLiteral,
+    index_expression: IndexExpression,
 
     pub fn string(self: *const Expression, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         switch (self.*) {

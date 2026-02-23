@@ -179,6 +179,14 @@ pub const Evaluator = struct {
             .if_expression => |if_expr| {
                 return try self.evaluateIfExpression(if_expr);
             },
+            .array_literal => |_| {
+                const msg = try self.heap.dupe(u8, "array literals not yet implemented in evaluator");
+                return obj.Object{ .@"error" = obj.ErrorObject{ .message = msg } };
+            },
+            .index_expression => |_| {
+                const msg = try self.heap.dupe(u8, "index expressions not yet implemented in evaluator");
+                return obj.Object{ .@"error" = obj.ErrorObject{ .message = msg } };
+            },
         };
     }
 
