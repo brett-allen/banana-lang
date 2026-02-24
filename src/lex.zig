@@ -51,7 +51,15 @@ pub const Lexer = struct {
             '+' => tok = token.Token.init(token.TokenType.plus, "+", line),
             '-' => tok = token.Token.init(token.TokenType.minus, "-", line),
             '*' => tok = token.Token.init(token.TokenType.asterisk, "*", line),
-            '/' => tok = token.Token.init(token.TokenType.slash, "/", line),
+            '/' => {
+                if (self.peekChar() == '/') {
+                    self.readChar();
+                    self.skipLineComment();
+                    return self.nextToken();
+                } else {
+                    tok = token.Token.init(token.TokenType.slash, "/", line);
+                }
+            },
             '<' => tok = token.Token.init(token.TokenType.lt, "<", line),
             '>' => tok = token.Token.init(token.TokenType.gt, ">", line),
             '!' => {
@@ -142,6 +150,12 @@ pub const Lexer = struct {
 
     fn skipWhitespace(self: *Lexer) void {
         while (std.ascii.isWhitespace(self.ch)) {
+            self.readChar();
+        }
+    }
+
+    fn skipLineComment(self: *Lexer) void {
+        while (self.ch != '\n' and self.ch != 0) {
             self.readChar();
         }
     }

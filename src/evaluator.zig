@@ -512,15 +512,15 @@ pub const Evaluator = struct {
         }
 
         const closure_env = @as(*const Environment, @ptrCast(@alignCast(func_obj.env)));
-        var extended_env = closure_env.enclose();
-        defer extended_env.deinit();
+        const extended_env = try self.heap.create(Environment);
+        extended_env.* = closure_env.enclose();
 
         for (func_obj.parameters, args) |param_name, arg_value| {
             try extended_env.set(param_name, arg_value);
         }
 
         const old_env = self.env;
-        self.env = &extended_env;
+        self.env = extended_env;
         defer self.env = old_env;
 
         const result = try self.evaluateBlockStatement(func_obj.body.*);
